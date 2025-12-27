@@ -1,0 +1,25 @@
+# Build artifacts
+/target/
+**/*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reference repos (cloned for study)
+/_reference/
+
+# Local data
+/store/
+*.db
+*.db-journal
+
+# Environment
+.env
+.env.local

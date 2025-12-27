@@ -1,0 +1,12 @@
+[package]
+name = "quaid-app"
+version = "0.1.0"
+edition = "2021"
+description = "macOS app for quaid (future GPUI)"
+license = "MIT"
+
+[dependencies]
+quaid-core = { path = "../quaid-core" }
+
+# GPUI will be added later
+# gpui = "0.1"
