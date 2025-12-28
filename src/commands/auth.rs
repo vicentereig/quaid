@@ -1,4 +1,7 @@
-use quaid_core::{providers::chatgpt::ChatGptProvider, Provider, Store};
+use quaid_core::{
+    providers::{chatgpt::ChatGptProvider, claude::ClaudeProvider},
+    Provider, Store,
+};
 
 pub async fn run(provider: &str, store: &Store) -> anyhow::Result<()> {
     match provider {
@@ -15,11 +18,22 @@ pub async fn run(provider: &str, store: &Store) -> anyhow::Result<()> {
             println!("\nAuthenticated as: {} ({})", account.email, account.id);
             println!("Account saved. You can now use `quaid pull chatgpt` to sync your conversations.");
 
-            // TODO: Store token securely in keyring
             Ok(())
         }
         "claude" => {
-            anyhow::bail!("Claude provider not yet implemented");
+            println!("Authenticating with Claude...");
+            println!("A browser window will open. Please log in to your Claude account.");
+
+            let mut provider = ClaudeProvider::new();
+            let account = provider.authenticate().await?;
+
+            // Save account to store
+            store.save_account(&account)?;
+
+            println!("\nAuthenticated as: {} ({})", account.email, account.id);
+            println!("Account saved. You can now use `quaid pull claude` to sync your conversations.");
+
+            Ok(())
         }
         "gemini" => {
             anyhow::bail!("Gemini provider not yet implemented");

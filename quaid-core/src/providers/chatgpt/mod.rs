@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use futures::StreamExt;
-use reqwest::Client;
+use reqwest::{header, Client};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -19,7 +19,8 @@ const BASE_URL: &str = "https://chatgpt.com";
 const API_URL: &str = "https://chatgpt.com/backend-api";
 
 const KEYRING_SERVICE: &str = "quaid";
-const KEYRING_USER: &str = "chatgpt-token";
+const KEYRING_USER_TOKEN: &str = "chatgpt-token";
+const KEYRING_USER_COOKIES: &str = "chatgpt-cookies";
 
 /// ChatGPT provider implementation
 pub struct ChatGptProvider {
@@ -30,14 +31,13 @@ pub struct ChatGptProvider {
 
 impl ChatGptProvider {
     pub fn new() -> Self {
-        // Try to load token from keyring
+        // Try to load token and cookies from keyring
         let stored_token = Self::load_token_from_keyring();
+        let stored_cookies = Self::load_cookies_from_keyring();
+        let client = Self::build_client(stored_cookies.as_deref());
 
         Self {
-            client: Client::builder()
-                .cookie_store(true)
-                .build()
-                .expect("Failed to create HTTP client"),
+            client,
             token: Arc::new(RwLock::new(stored_token)),
             account_id: Arc::new(RwLock::new(None)),
         }
@@ -46,28 +46,77 @@ impl ChatGptProvider {
     /// Create with an existing token (for testing or restored sessions)
     pub fn with_token(token: String) -> Self {
         Self {
-            client: Client::builder()
-                .cookie_store(true)
-                .build()
-                .expect("Failed to create HTTP client"),
+            client: Self::build_client(None),
             token: Arc::new(RwLock::new(Some(token))),
             account_id: Arc::new(RwLock::new(None)),
         }
     }
 
+    /// Build HTTP client with browser-like headers and optional cookies
+    fn build_client(cookies: Option<&str>) -> Client {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::USER_AGENT,
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                .parse()
+                .unwrap(),
+        );
+        headers.insert(
+            header::ACCEPT,
+            "application/json, text/plain, */*".parse().unwrap(),
+        );
+        headers.insert(
+            header::ACCEPT_LANGUAGE,
+            "en-US,en;q=0.9".parse().unwrap(),
+        );
+        headers.insert(header::ORIGIN, BASE_URL.parse().unwrap());
+        headers.insert(header::REFERER, BASE_URL.parse().unwrap());
+        headers.insert("Sec-Fetch-Dest", "empty".parse().unwrap());
+        headers.insert("Sec-Fetch-Mode", "cors".parse().unwrap());
+        headers.insert("Sec-Fetch-Site", "same-origin".parse().unwrap());
+
+        // Add cookies if available
+        if let Some(cookie_str) = cookies {
+            if let Ok(cookie_val) = cookie_str.parse() {
+                headers.insert(header::COOKIE, cookie_val);
+            }
+        }
+
+        Client::builder()
+            .default_headers(headers)
+            .cookie_store(true)
+            .build()
+            .expect("Failed to create HTTP client")
+    }
+
     /// Load token from system keyring
     fn load_token_from_keyring() -> Option<String> {
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_TOKEN)
             .ok()
             .and_then(|entry| entry.get_password().ok())
     }
 
     /// Save token to system keyring
     fn save_token_to_keyring(token: &str) -> Result<()> {
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_TOKEN)
             .map_err(|e| ProviderError::AuthFailed(format!("Keyring error: {}", e)))?
             .set_password(token)
             .map_err(|e| ProviderError::AuthFailed(format!("Failed to save token: {}", e)))
+    }
+
+    /// Load cookies from system keyring
+    fn load_cookies_from_keyring() -> Option<String> {
+        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_COOKIES)
+            .ok()
+            .and_then(|entry| entry.get_password().ok())
+    }
+
+    /// Save cookies to system keyring
+    fn save_cookies_to_keyring(cookies: &str) -> Result<()> {
+        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_COOKIES)
+            .map_err(|e| ProviderError::AuthFailed(format!("Keyring error: {}", e)))?
+            .set_password(cookies)
+            .map_err(|e| ProviderError::AuthFailed(format!("Failed to save cookies: {}", e)))
     }
 
     async fn get_token(&self) -> Result<String> {
@@ -112,10 +161,13 @@ impl ChatGptProvider {
             return Err(ProviderError::Api(format!("{}: {}", status, text)));
         }
 
-        response
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))
+        let text = response.text().await.map_err(|e| ProviderError::Parse(e.to_string()))?;
+
+        serde_json::from_str(&text).map_err(|e| {
+            // Truncate response for error message
+            let preview = if text.len() > 200 { &text[..200] } else { &text };
+            ProviderError::Parse(format!("{}: {}", e, preview))
+        })
     }
 
     /// Fetch all conversations with pagination
@@ -346,9 +398,32 @@ impl Provider for ChatGptProvider {
             }
         };
 
+        // Extract cookies from the browser using CDP (gets HttpOnly cookies too)
+        let cookies = page
+            .get_cookies()
+            .await
+            .ok()
+            .map(|cookies| {
+                cookies
+                    .into_iter()
+                    .filter(|c| c.domain.contains("chatgpt.com") || c.domain.contains("openai.com"))
+                    .map(|c| format!("{}={}", c.name, c.value))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            });
+
         // Store the token in memory and keyring
         *self.token.write().await = Some(token.clone());
         Self::save_token_to_keyring(&token)?;
+
+        // Save cookies if we got them
+        if let Some(ref cookie_str) = cookies {
+            if !cookie_str.is_empty() {
+                Self::save_cookies_to_keyring(cookie_str)?;
+                // Rebuild client with cookies
+                self.client = Self::build_client(Some(cookie_str));
+            }
+        }
 
         // Close browser
         drop(browser);

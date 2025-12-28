@@ -10,7 +10,7 @@ license = "MIT"
 tokio = { version = "1", features = ["full"] }
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json", "cookies"] }
+reqwest = { version = "0.12", features = ["json", "cookies", "gzip", "brotli", "deflate"] }
 
 # Browser automation
 chromiumoxide = { version = "0.8", features = ["tokio", "tokio-runtime"], default-features = false }
@@ -22,9 +22,6 @@ serde_json = "1"
 
 # Database
 rusqlite = { version = "0.32", features = ["bundled"] }
-
-# Secure credential storage
-keyring = "3"
 
 # Error handling
 thiserror = "2"
@@ -38,6 +35,16 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Async trait
 async-trait = "0.1"
+
+# Secure credential storage - platform specific
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

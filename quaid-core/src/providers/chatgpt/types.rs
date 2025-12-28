@@ -3,8 +3,101 @@
 //! These types are based on the chatgpt-exporter project:
 //! https://github.com/pionxzh/chatgpt-exporter
 
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
+
+/// Flexibly deserialize timestamps that can be either floats or ISO 8601 strings
+fn deserialize_timestamp<'de, D>(deserializer: D) -> Result<f64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{Error, Visitor};
+
+    struct TimestampVisitor;
+
+    impl<'de> Visitor<'de> for TimestampVisitor {
+        type Value = f64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a float or ISO 8601 timestamp string")
+        }
+
+        fn visit_f64<E: Error>(self, v: f64) -> Result<f64, E> {
+            Ok(v)
+        }
+
+        fn visit_i64<E: Error>(self, v: i64) -> Result<f64, E> {
+            Ok(v as f64)
+        }
+
+        fn visit_u64<E: Error>(self, v: u64) -> Result<f64, E> {
+            Ok(v as f64)
+        }
+
+        fn visit_str<E: Error>(self, v: &str) -> Result<f64, E> {
+            // Try to parse as ISO 8601
+            DateTime::parse_from_rfc3339(v)
+                .map(|dt| dt.timestamp() as f64 + dt.timestamp_subsec_nanos() as f64 / 1e9)
+                .map_err(|_| E::custom(format!("invalid timestamp: {}", v)))
+        }
+    }
+
+    deserializer.deserialize_any(TimestampVisitor)
+}
+
+/// Flexibly deserialize optional timestamps
+fn deserialize_optional_timestamp<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{Error, Visitor};
+
+    struct OptionalTimestampVisitor;
+
+    impl<'de> Visitor<'de> for OptionalTimestampVisitor {
+        type Value = Option<f64>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("null, a float, or ISO 8601 timestamp string")
+        }
+
+        fn visit_none<E: Error>(self) -> Result<Option<f64>, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: Error>(self) -> Result<Option<f64>, E> {
+            Ok(None)
+        }
+
+        fn visit_some<D2>(self, deserializer: D2) -> Result<Option<f64>, D2::Error>
+        where
+            D2: Deserializer<'de>,
+        {
+            deserialize_timestamp(deserializer).map(Some)
+        }
+
+        fn visit_f64<E: Error>(self, v: f64) -> Result<Option<f64>, E> {
+            Ok(Some(v))
+        }
+
+        fn visit_i64<E: Error>(self, v: i64) -> Result<Option<f64>, E> {
+            Ok(Some(v as f64))
+        }
+
+        fn visit_u64<E: Error>(self, v: u64) -> Result<Option<f64>, E> {
+            Ok(Some(v as f64))
+        }
+
+        fn visit_str<E: Error>(self, v: &str) -> Result<Option<f64>, E> {
+            DateTime::parse_from_rfc3339(v)
+                .map(|dt| Some(dt.timestamp() as f64 + dt.timestamp_subsec_nanos() as f64 / 1e9))
+                .map_err(|_| E::custom(format!("invalid timestamp: {}", v)))
+        }
+    }
+
+    deserializer.deserialize_any(OptionalTimestampVisitor)
+}
 
 /// Session response from /api/auth/session
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -43,14 +136,19 @@ pub struct ApiConversations {
 pub struct ApiConversationItem {
     pub id: String,
     pub title: String,
+    #[serde(deserialize_with = "deserialize_timestamp")]
     pub create_time: f64,
+    #[serde(default, deserialize_with = "deserialize_optional_timestamp")]
+    pub update_time: Option<f64>,
 }
 
 /// Full conversation from /backend-api/conversation/:id
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ApiConversation {
     pub title: String,
+    #[serde(deserialize_with = "deserialize_timestamp")]
     pub create_time: f64,
+    #[serde(deserialize_with = "deserialize_timestamp")]
     pub update_time: f64,
     pub mapping: HashMap<String, ApiConversationNode>,
     pub current_node: Option<String>,
@@ -79,7 +177,9 @@ pub struct ApiNodeMessage {
     pub author: ApiAuthor,
     pub content: serde_json::Value, // Dynamic based on content_type
     pub status: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_timestamp")]
     pub create_time: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_timestamp")]
     pub update_time: Option<f64>,
     pub metadata: Option<ApiMessageMetadata>,
     pub recipient: Option<String>,
@@ -138,7 +238,9 @@ pub struct ApiAggregateResult {
     pub status: Option<String>,
     pub messages: Option<Vec<ApiExecutionMessage>>,
     pub run_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_timestamp")]
     pub start_time: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_timestamp")]
     pub end_time: Option<f64>,
 }
 
@@ -149,6 +251,7 @@ pub struct ApiExecutionMessage {
     pub image_url: Option<String>,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    #[serde(default, deserialize_with = "deserialize_optional_timestamp")]
     pub time: Option<f64>,
 }
 
