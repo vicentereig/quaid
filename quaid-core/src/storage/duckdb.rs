@@ -2,7 +2,7 @@
 //!
 //! Provides SQL queries across multiple parquet files using DuckDB's glob support.
 
-use super::{ParquetStorageConfig, Result, SearchResult};
+use super::{ParquetStorageConfig, Result, SearchResult, SemanticSearchResult};
 use crate::providers::{Conversation, Message, MessageContent, Role};
 use chrono::{DateTime, TimeZone, Utc};
 use duckdb::{params, Connection};
@@ -379,6 +379,156 @@ impl DuckDbQuery {
                 text
             }
         }
+    }
+
+    /// Search embeddings by vector similarity
+    ///
+    /// Computes L2 distance between the query embedding and stored embeddings,
+    /// returning the top-k most similar chunks.
+    pub fn search_semantic(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<SemanticSearchResult>> {
+        let glob_pattern = self
+            .config
+            .base_dir
+            .join("embeddings")
+            .join("*")
+            .join("*.parquet");
+
+        let glob_str = glob_pattern.to_string_lossy();
+
+        // Check if any embedding files exist
+        if !self.has_parquet_files(&glob_str)? {
+            return Ok(vec![]);
+        }
+
+        // Convert query embedding to DuckDB list format
+        let embedding_str = format!(
+            "[{}]",
+            query_embedding
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+
+        // Query embeddings and compute L2 distance
+        // DuckDB can compute list operations directly
+        let sql = format!(
+            r#"
+            SELECT
+                conversation_id,
+                message_id,
+                text,
+                list_distance(embedding, {embedding}::FLOAT[384]) as distance
+            FROM read_parquet('{glob}')
+            ORDER BY distance ASC
+            LIMIT {limit}
+            "#,
+            embedding = embedding_str,
+            glob = glob_str,
+            limit = limit
+        );
+
+        let mut stmt = self.conn.prepare(&sql)?;
+
+        let results = stmt
+            .query_map([], |row| {
+                Ok(SemanticSearchResult {
+                    conversation_id: row.get(0)?,
+                    message_id: row.get(1)?,
+                    chunk_text: row.get(2)?,
+                    score: row.get(3)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(results)
+    }
+
+    /// Hybrid search combining FTS and vector similarity
+    ///
+    /// First performs keyword search to get candidates, then re-ranks by
+    /// combining FTS score with vector similarity.
+    pub fn search_hybrid(
+        &self,
+        query: &str,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<SemanticSearchResult>> {
+        // Get FTS candidates (broader set)
+        let fts_results = self.search_messages(query, limit * 3)?;
+
+        if fts_results.is_empty() {
+            // Fall back to pure semantic search
+            return self.search_semantic(query_embedding, limit);
+        }
+
+        // Get semantic results
+        let semantic_results = self.search_semantic(query_embedding, limit * 3)?;
+
+        if semantic_results.is_empty() {
+            // Convert FTS results to SemanticSearchResult
+            return Ok(fts_results
+                .into_iter()
+                .take(limit)
+                .map(|r| SemanticSearchResult {
+                    conversation_id: r.conversation_id,
+                    message_id: String::new(),
+                    chunk_text: r.snippet,
+                    score: 0.0,
+                })
+                .collect());
+        }
+
+        // Simple RRF (Reciprocal Rank Fusion) combining
+        // Score = 1/(k + rank_fts) + 1/(k + rank_semantic)
+        const K: f32 = 60.0;
+
+        let mut combined: std::collections::HashMap<String, (String, String, f32)> =
+            std::collections::HashMap::new();
+
+        // Add FTS scores
+        for (rank, result) in fts_results.iter().enumerate() {
+            let score = 1.0 / (K + rank as f32);
+            combined
+                .entry(result.conversation_id.clone())
+                .or_insert((String::new(), result.snippet.clone(), 0.0))
+                .2 += score;
+        }
+
+        // Add semantic scores
+        for (rank, result) in semantic_results.iter().enumerate() {
+            let score = 1.0 / (K + rank as f32);
+            let entry = combined
+                .entry(result.conversation_id.clone())
+                .or_insert((
+                    result.message_id.clone(),
+                    result.chunk_text.clone(),
+                    0.0,
+                ));
+            entry.0 = result.message_id.clone();
+            entry.1 = result.chunk_text.clone();
+            entry.2 += score;
+        }
+
+        // Sort by combined score (descending)
+        let mut results: Vec<_> = combined
+            .into_iter()
+            .map(|(conv_id, (msg_id, text, score))| SemanticSearchResult {
+                conversation_id: conv_id,
+                message_id: msg_id,
+                chunk_text: text,
+                score,
+            })
+            .collect();
+
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.truncate(limit);
+
+        Ok(results)
     }
 }
 

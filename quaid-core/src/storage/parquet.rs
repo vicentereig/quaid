@@ -2,7 +2,7 @@
 //!
 //! Stores each conversation as a separate parquet file with its messages.
 
-use super::{ParquetStorageConfig, Result};
+use super::{ParquetStorageConfig, Result, StorageError};
 use crate::providers::{Conversation, Message, MessageContent, Role};
 use arrow::array::{
     Array, ArrayRef, BooleanArray, RecordBatch, StringArray, TimestampMillisecondArray,
@@ -85,7 +85,8 @@ impl ParquetStore {
             .set_compression(parquet::basic::Compression::ZSTD(Default::default()))
             .build();
 
-        let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props))?;
+        let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props))
+            .map_err(|e| StorageError::Parquet(e.to_string()))?;
 
         // Build arrays for each message row (denormalized with conversation data)
         let num_rows = messages.len().max(1); // At least one row for conversation metadata
@@ -195,8 +196,12 @@ impl ParquetStore {
             ],
         )?;
 
-        writer.write(&batch)?;
-        writer.close()?;
+        writer
+            .write(&batch)
+            .map_err(|e| StorageError::Parquet(e.to_string()))?;
+        writer
+            .close()
+            .map_err(|e| StorageError::Parquet(e.to_string()))?;
 
         Ok(path)
     }
@@ -214,8 +219,11 @@ impl ParquetStore {
         }
 
         let file = File::open(&path)?;
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let mut reader = builder.build()?;
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file)
+            .map_err(|e| StorageError::Parquet(e.to_string()))?;
+        let mut reader = builder
+            .build()
+            .map_err(|e| StorageError::Parquet(e.to_string()))?;
 
         let mut conversation: Option<Conversation> = None;
         let mut messages: Vec<Message> = Vec::new();

@@ -15,7 +15,7 @@ pub use messages::PipelineMessage;
 use crate::embeddings::{ChunkerConfig, Embedder, EmbeddingModel, MessageChunker};
 use crate::providers::{Conversation, Message};
 use crate::storage::parquet::ParquetStore;
-use crate::storage::ParquetStorageConfig;
+use crate::storage::{EmbeddingsStore, ParquetStorageConfig};
 use crossbeam_channel::bounded;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -83,6 +83,7 @@ impl Pipeline {
         // Shared resources
         let storage_config = ParquetStorageConfig::new(&self.config.data_dir);
         let parquet_store = Arc::new(ParquetStore::new(storage_config.clone()));
+        let embeddings_store = Arc::new(EmbeddingsStore::new(storage_config.clone()));
         let embedder: Arc<dyn Embedder> = Arc::new(
             EmbeddingModel::load_or_download(self.config.data_dir.join("models"))?,
         );
@@ -128,11 +129,12 @@ impl Pipeline {
             let rx = media_rx.clone();
             let tx = embed_tx.clone();
             let store = parquet_store.clone();
+            let emb_store = embeddings_store.clone();
             let emb = embedder.clone();
             let chunk = chunker.clone();
 
             handles.push(thread::spawn(move || {
-                stages::embed_worker(rx, tx, store, emb, chunk)
+                stages::embed_worker(rx, tx, store, emb_store, emb, chunk)
             }));
         }
         // Drop our copies

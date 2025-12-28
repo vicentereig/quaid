@@ -3,9 +3,11 @@
 //! Stores conversations, messages, and attachments with full-text search support.
 
 pub mod duckdb;
+pub mod embeddings;
 pub mod parquet;
 pub mod traits;
 
+pub use embeddings::EmbeddingsStore;
 pub use traits::*;
 
 use crate::providers::{Account, Attachment, Conversation, Message, ProviderId};
@@ -22,7 +24,7 @@ pub enum StorageError {
     DuckDb(#[from] ::duckdb::Error),
 
     #[error("Parquet error: {0}")]
-    Parquet(#[from] ::parquet::errors::ParquetError),
+    Parquet(String),
 
     #[error("Arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),
@@ -34,7 +36,10 @@ pub enum StorageError {
     NotFound(String),
 
     #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
+    Serialization(String),
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 pub type Result<T> = std::result::Result<T, StorageError>;

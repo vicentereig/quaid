@@ -4,7 +4,7 @@ use super::messages::PipelineMessage;
 use super::Result;
 use crate::embeddings::{Embedder, MessageChunker};
 use crate::storage::parquet::ParquetStore;
-use crate::storage::ParquetStorageConfig;
+use crate::storage::{EmbeddingsStore, ParquetStorageConfig};
 use crossbeam_channel::{Receiver, Sender};
 use std::sync::Arc;
 
@@ -61,6 +61,7 @@ pub fn embed_worker(
     rx: Receiver<PipelineMessage>,
     tx: Sender<PipelineMessage>,
     store: Arc<ParquetStore>,
+    embeddings_store: Arc<EmbeddingsStore>,
     embedder: Arc<dyn Embedder>,
     chunker: Arc<MessageChunker>,
 ) -> Result<()> {
@@ -73,6 +74,7 @@ pub fn embed_worker(
                 attachments: _,
             } => {
                 let conv_id = conversation.id.clone();
+                let provider_id = conversation.provider_id.clone();
                 let messages_count = messages.len();
 
                 // Chunk all messages
@@ -81,7 +83,7 @@ pub fn embed_worker(
 
                 // Generate embeddings for chunks
                 let chunk_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
-                let _embeddings = match embedder.embed_batch(&chunk_texts) {
+                let embeddings = match embedder.embed_batch(&chunk_texts) {
                     Ok(e) => e,
                     Err(e) => {
                         let _ = tx.send(PipelineMessage::Error {
@@ -103,7 +105,19 @@ pub fn embed_worker(
                     continue;
                 }
 
-                // TODO: Write embeddings to separate parquet file
+                // Write embeddings to parquet
+                if !chunks.is_empty() {
+                    if let Err(e) =
+                        embeddings_store.write_embeddings(&conv_id, &provider_id, &chunks, &embeddings)
+                    {
+                        let _ = tx.send(PipelineMessage::Error {
+                            conversation_id: conv_id.clone(),
+                            stage: "embeddings".to_string(),
+                            message: format!("Failed to write embeddings: {}", e),
+                        });
+                        continue;
+                    }
+                }
 
                 // Send completion
                 let _ = tx.send(PipelineMessage::Complete {
@@ -212,7 +226,8 @@ mod tests {
         let (in_tx, in_rx) = bounded(10);
         let (out_tx, out_rx) = bounded(10);
 
-        let store = Arc::new(ParquetStore::new(config));
+        let store = Arc::new(ParquetStore::new(config.clone()));
+        let embeddings_store = Arc::new(EmbeddingsStore::new(config));
         let embedder: Arc<dyn Embedder> = Arc::new(MockEmbeddingModel::new(384));
         let chunker = Arc::new(MessageChunker::new(ChunkerConfig::default()));
 
@@ -231,8 +246,9 @@ mod tests {
         drop(in_tx);
 
         // Run worker
-        let handle =
-            std::thread::spawn(move || embed_worker(in_rx, out_tx, store, embedder, chunker));
+        let handle = std::thread::spawn(move || {
+            embed_worker(in_rx, out_tx, store, embeddings_store, embedder, chunker)
+        });
 
         // Check output
         let output = out_rx.recv().unwrap();
