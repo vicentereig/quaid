@@ -1,8 +1,6 @@
 # quaid
 
-<p align="center">
-  <img src="assets/quaid-logo.png" alt="quaid" width="200">
-</p>
+![quaid](assets/quaid-logo.png)
 
 **Get your chats back.** Export and backup your AI conversations locally.
 
