@@ -1,8 +1,9 @@
 use chrono::{DateTime, Utc};
 use quaid_core::{
+    pipeline::{Pipeline, PipelineConfig},
     providers::{
         chatgpt::ChatGptProvider, claude::ClaudeProvider, fathom::FathomProvider,
-        granola::GranolaProvider,
+        granola::GranolaProvider, Conversation, Message,
     },
     Provider, Store,
 };
@@ -95,8 +96,8 @@ async fn pull_provider(
     match provider {
         "chatgpt" => pull_chatgpt(account_id, new_only, store, data_dir).await,
         "claude" => pull_claude(account_id, new_only, store, data_dir).await,
-        "fathom" => pull_fathom(account_id, new_only, store).await,
-        "granola" => pull_granola(account_id, new_only, store).await,
+        "fathom" => pull_fathom(account_id, new_only, store, data_dir).await,
+        "granola" => pull_granola(account_id, new_only, store, data_dir).await,
         "gemini" => {
             println!("Gemini provider not yet implemented");
             Ok(())
@@ -132,6 +133,9 @@ async fn pull_chatgpt(
     let mut skipped = 0;
     let mut failed = 0;
 
+    // Collect synced conversations for pipeline processing
+    let mut pipeline_data: Vec<(String, Conversation, Vec<Message>)> = Vec::new();
+
     for (i, conv) in conversations.iter().enumerate() {
         // Check if we should skip this conversation
         if should_skip(&conv.id, conv.updated_at, new_only, store) {
@@ -148,14 +152,19 @@ async fn pull_chatgpt(
 
         match provider.conversation(&conv.id).await {
             Ok((full_conv, messages)) => {
-                // Save conversation
+                // Save conversation to SQLite
                 store.save_conversation(account_id, &full_conv)?;
 
-                // Save messages
+                // Save messages to SQLite
+                let mut saved_messages = Vec::new();
                 for mut msg in messages {
                     msg.conversation_id = conv.id.clone();
                     store.save_message(&msg)?;
+                    saved_messages.push(msg);
                 }
+
+                // Collect for pipeline
+                pipeline_data.push((account_id.to_string(), full_conv, saved_messages));
 
                 synced += 1;
             }
@@ -198,6 +207,11 @@ async fn pull_chatgpt(
                 }
             }
         }
+    }
+
+    // Run pipeline for Parquet storage and embeddings
+    if !pipeline_data.is_empty() {
+        run_pipeline(data_dir, pipeline_data)?;
     }
 
     Ok(())
@@ -227,6 +241,9 @@ async fn pull_claude(
     let mut skipped = 0;
     let mut failed = 0;
 
+    // Collect synced conversations for pipeline processing
+    let mut pipeline_data: Vec<(String, Conversation, Vec<Message>)> = Vec::new();
+
     for (i, conv) in conversations.iter().enumerate() {
         // Check if we should skip this conversation
         if should_skip(&conv.id, conv.updated_at, new_only, store) {
@@ -243,18 +260,23 @@ async fn pull_claude(
 
         match provider.conversation_with_attachments(&conv.id).await {
             Ok((full_conv, messages, attachments)) => {
-                // Save conversation
+                // Save conversation to SQLite
                 store.save_conversation(account_id, &full_conv)?;
 
-                // Save messages
+                // Save messages to SQLite
+                let mut saved_messages = Vec::new();
                 for msg in messages {
                     store.save_message(&msg)?;
+                    saved_messages.push(msg);
                 }
 
                 // Save attachments for later download
                 for attachment in attachments {
                     store.save_attachment(&attachment)?;
                 }
+
+                // Collect for pipeline
+                pipeline_data.push((account_id.to_string(), full_conv, saved_messages));
 
                 synced += 1;
             }
@@ -299,10 +321,20 @@ async fn pull_claude(
         }
     }
 
+    // Run pipeline for Parquet storage and embeddings
+    if !pipeline_data.is_empty() {
+        run_pipeline(data_dir, pipeline_data)?;
+    }
+
     Ok(())
 }
 
-async fn pull_fathom(account_id: &str, new_only: bool, store: &Store) -> anyhow::Result<()> {
+async fn pull_fathom(
+    account_id: &str,
+    new_only: bool,
+    store: &Store,
+    data_dir: &Path,
+) -> anyhow::Result<()> {
     println!("Fetching meetings from Fathom (with transcripts)...");
 
     let provider = FathomProvider::new();
@@ -318,6 +350,9 @@ async fn pull_fathom(account_id: &str, new_only: bool, store: &Store) -> anyhow:
 
     let mut synced = 0;
     let mut skipped = 0;
+
+    // Collect synced conversations for pipeline processing
+    let mut pipeline_data: Vec<(String, Conversation, Vec<Message>)> = Vec::new();
 
     for (i, meeting) in meetings.iter().enumerate() {
         let (conv, messages) = provider.meeting_to_data(meeting);
@@ -336,9 +371,14 @@ async fn pull_fathom(account_id: &str, new_only: bool, store: &Store) -> anyhow:
         );
 
         store.save_conversation(account_id, &conv)?;
+        let mut saved_messages = Vec::new();
         for msg in messages {
             store.save_message(&msg)?;
+            saved_messages.push(msg);
         }
+
+        // Collect for pipeline
+        pipeline_data.push((account_id.to_string(), conv, saved_messages));
         synced += 1;
     }
 
@@ -350,10 +390,21 @@ async fn pull_fathom(account_id: &str, new_only: bool, store: &Store) -> anyhow:
     } else {
         println!("\n\nSync complete: {} meetings synced", synced);
     }
+
+    // Run pipeline for Parquet storage and embeddings
+    if !pipeline_data.is_empty() {
+        run_pipeline(data_dir, pipeline_data)?;
+    }
+
     Ok(())
 }
 
-async fn pull_granola(account_id: &str, new_only: bool, store: &Store) -> anyhow::Result<()> {
+async fn pull_granola(
+    account_id: &str,
+    new_only: bool,
+    store: &Store,
+    data_dir: &Path,
+) -> anyhow::Result<()> {
     println!("Fetching meeting notes from Granola...");
 
     let provider = GranolaProvider::new();
@@ -370,6 +421,9 @@ async fn pull_granola(account_id: &str, new_only: bool, store: &Store) -> anyhow
     let mut synced = 0;
     let mut skipped = 0;
     let mut failed = 0;
+
+    // Collect synced conversations for pipeline processing
+    let mut pipeline_data: Vec<(String, Conversation, Vec<Message>)> = Vec::new();
 
     for (i, conv) in conversations.iter().enumerate() {
         // Check if we should skip this conversation
@@ -388,9 +442,14 @@ async fn pull_granola(account_id: &str, new_only: bool, store: &Store) -> anyhow
         match provider.conversation(&conv.id).await {
             Ok((full_conv, messages)) => {
                 store.save_conversation(account_id, &full_conv)?;
+                let mut saved_messages = Vec::new();
                 for msg in messages {
                     store.save_message(&msg)?;
+                    saved_messages.push(msg);
                 }
+
+                // Collect for pipeline
+                pipeline_data.push((account_id.to_string(), full_conv, saved_messages));
                 synced += 1;
             }
             Err(e) => {
@@ -410,6 +469,12 @@ async fn pull_granola(account_id: &str, new_only: bool, store: &Store) -> anyhow
     } else {
         println!("\n\nSync complete: {} synced, {} failed", synced, failed);
     }
+
+    // Run pipeline for Parquet storage and embeddings
+    if !pipeline_data.is_empty() {
+        run_pipeline(data_dir, pipeline_data)?;
+    }
+
     Ok(())
 }
 
@@ -419,4 +484,36 @@ fn truncate(s: &str, max_len: usize) -> String {
     } else {
         format!("{}...", &s[..max_len - 3])
     }
+}
+
+/// Run the pipeline for Parquet storage and embeddings
+fn run_pipeline(
+    data_dir: &Path,
+    conversations: Vec<(String, Conversation, Vec<Message>)>,
+) -> anyhow::Result<()> {
+    let count = conversations.len();
+    println!("\nIndexing {} conversations...", count);
+
+    let config = PipelineConfig::new(data_dir);
+    let pipeline = Pipeline::new(config);
+
+    match pipeline.run(conversations) {
+        Ok(result) => {
+            println!(
+                "Indexed: {} conversations, {} messages, {} embeddings",
+                result.conversations_synced, result.messages_processed, result.embeddings_generated
+            );
+            if !result.errors.is_empty() {
+                eprintln!("Pipeline errors: {}", result.errors.len());
+                for err in result.errors.iter().take(3) {
+                    eprintln!("  - {}", err);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Pipeline error: {}", e);
+        }
+    }
+
+    Ok(())
 }

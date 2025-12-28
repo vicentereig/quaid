@@ -5,5 +5,6 @@ pub mod providers;
 pub mod storage;
 
 pub use credentials::{CredentialStore, KeyringStore, MockStore};
+pub use pipeline::{Pipeline, PipelineConfig, PipelineResult};
 pub use providers::Provider;
 pub use storage::Store;
