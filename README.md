@@ -2,7 +2,9 @@
 
 ![quaid](assets/quaid-logo.png)
 
-**Get your chats back.** Export and backup your AI conversations locally.
+*"Get your ass to Mars!"* I mean, **get your chats back!**
+
+Export and backup your AI conversations locally.
 
 ## Features
 
