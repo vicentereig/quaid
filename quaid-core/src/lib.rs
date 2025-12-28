@@ -1,4 +1,6 @@
 pub mod credentials;
+pub mod embeddings;
+pub mod pipeline;
 pub mod providers;
 pub mod storage;
 

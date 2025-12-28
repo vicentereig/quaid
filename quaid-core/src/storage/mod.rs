@@ -2,6 +2,12 @@
 //!
 //! Stores conversations, messages, and attachments with full-text search support.
 
+pub mod duckdb;
+pub mod parquet;
+pub mod traits;
+
+pub use traits::*;
+
 use crate::providers::{Account, Attachment, Conversation, Message, ProviderId};
 use rusqlite::{params, Connection, Result as SqliteResult};
 use std::path::Path;
@@ -11,6 +17,15 @@ use thiserror::Error;
 pub enum StorageError {
     #[error("Database error: {0}")]
     Database(#[from] rusqlite::Error),
+
+    #[error("DuckDB error: {0}")]
+    DuckDb(#[from] ::duckdb::Error),
+
+    #[error("Parquet error: {0}")]
+    Parquet(#[from] ::parquet::errors::ParquetError),
+
+    #[error("Arrow error: {0}")]
+    Arrow(#[from] arrow::error::ArrowError),
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),

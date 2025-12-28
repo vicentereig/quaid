@@ -14,7 +14,10 @@ Export and backup your AI conversations locally.
 - **Granola sync** — Meeting notes from local app
 - **Attachment downloads** — Images and files from ChatGPT and Claude
 - **Incremental sync** — Only pull new/updated conversations with `--new-only`
-- **Local SQLite storage** — Full-text search across all providers
+- **Parallel pipeline** — Multi-threaded sync with configurable worker pools
+- **Parquet storage** — Columnar format for efficient querying with DuckDB
+- **Semantic search** — ONNX-powered embeddings (multilingual-e5-small)
+- **Full-text search** — SQLite FTS across all providers
 - **Secure credentials** — Tokens stored in system keychain
 - **Export** — JSONL, JSON, or Markdown formats
 
@@ -52,9 +55,15 @@ quaid export backup.jsonl --format jsonl
 quaid stats
 ```
 
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed system design, pipeline diagrams, and concurrency model.
+
 ## Coming Soon
 
 - [ ] Gemini support
+- [ ] Semantic search CLI (`quaid search --semantic`)
+- [ ] Vector similarity with DuckDB VSS extension
 
 ## License
 
