@@ -88,7 +88,7 @@ pub enum ApiContentBlock {
     Unknown,
 }
 
-/// Attachment metadata
+/// Attachment metadata (legacy format)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ApiAttachment {
     pub id: Option<String>,
@@ -99,24 +99,60 @@ pub struct ApiAttachment {
     pub extracted_content: Option<String>,
 }
 
-/// File reference
+/// File reference (current format from API)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ApiFile {
     pub file_uuid: Option<String>,
     pub file_name: String,
+    #[serde(default)]
     pub file_size: Option<u64>,
+    #[serde(default)]
     pub file_type: Option<String>,
+    #[serde(default)]
+    pub file_kind: Option<String>,
+    #[serde(default)]
+    pub preview_url: Option<String>,
+}
+
+impl ApiFile {
+    /// Get the file UUID for downloading
+    pub fn uuid(&self) -> Option<&str> {
+        self.file_uuid.as_deref()
+    }
+
+    /// Get the mime type, inferring from file_kind if needed
+    pub fn mime_type(&self) -> String {
+        if let Some(ref ft) = self.file_type {
+            return ft.clone();
+        }
+        match self.file_kind.as_deref() {
+            Some("image") => "image/png".to_string(),
+            Some("pdf") => "application/pdf".to_string(),
+            Some("text") => "text/plain".to_string(),
+            _ => "application/octet-stream".to_string(),
+        }
+    }
 }
 
 /// Account/user info (from session or account endpoint)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ApiAccount {
     pub uuid: String,
+    #[serde(alias = "email_address")]
     pub email: Option<String>,
     #[serde(alias = "full_name")]
     pub name: Option<String>,
     #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
     pub avatar_url: Option<String>,
+}
+
+impl ApiAccount {
+    /// Get the best available name
+    pub fn best_name(&self) -> Option<String> {
+        self.name.clone().or_else(|| self.display_name.clone())
+    }
 }
 
 /// Project info

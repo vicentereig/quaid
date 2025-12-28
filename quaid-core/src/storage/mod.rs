@@ -130,7 +130,8 @@ impl Store {
             r#"
             INSERT INTO accounts (id, provider, email, name, avatar_url)
             VALUES (?1, ?2, ?3, ?4, ?5)
-            ON CONFLICT(provider, email) DO UPDATE SET
+            ON CONFLICT(id) DO UPDATE SET
+                email = excluded.email,
                 name = excluded.name,
                 avatar_url = excluded.avatar_url
             "#,
@@ -214,6 +215,29 @@ impl Store {
             ],
         )?;
         Ok(())
+    }
+
+    /// Get just the updated_at timestamp for a conversation (for incremental sync)
+    pub fn get_conversation_updated_at(
+        &self,
+        id: &str,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
+        let result = self.conn.query_row(
+            "SELECT updated_at FROM conversations WHERE id = ?1",
+            params![id],
+            |row| {
+                let updated_at: String = row.get(0)?;
+                Ok(chrono::DateTime::parse_from_rfc3339(&updated_at)
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .ok())
+            },
+        );
+
+        match result {
+            Ok(dt) => Ok(dt),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub fn get_conversation(&self, id: &str) -> Result<Option<Conversation>> {

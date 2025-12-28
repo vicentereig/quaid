@@ -1,5 +1,7 @@
 pub mod chatgpt;
 pub mod claude;
+pub mod fathom;
+pub mod granola;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -43,6 +45,14 @@ impl ProviderId {
 
     pub fn claude() -> Self {
         Self("claude".to_string())
+    }
+
+    pub fn fathom() -> Self {
+        Self("fathom".to_string())
+    }
+
+    pub fn granola() -> Self {
+        Self("granola".to_string())
     }
 }
 
@@ -164,6 +174,9 @@ mod tests {
     fn test_provider_id_equality() {
         assert_eq!(ProviderId::chatgpt(), ProviderId::chatgpt());
         assert_ne!(ProviderId::chatgpt(), ProviderId::claude());
+        assert_ne!(ProviderId::fathom(), ProviderId::granola());
+        assert_eq!(ProviderId::fathom().to_string(), "fathom");
+        assert_eq!(ProviderId::granola().to_string(), "granola");
     }
 
     #[test]

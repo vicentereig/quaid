@@ -4,6 +4,7 @@
 
 pub mod types;
 
+use crate::credentials::{CredentialStore, KeyringStore};
 use crate::providers::{
     Account, Attachment, Conversation, Message, MessageContent, Provider, ProviderId,
     ProviderError, Result, Role,
@@ -11,6 +12,7 @@ use crate::providers::{
 use async_trait::async_trait;
 use reqwest::{header, Client};
 use std::path::Path;
+use std::sync::Arc;
 use types::*;
 
 const API_BASE: &str = "https://claude.ai/api";
@@ -25,12 +27,23 @@ pub struct ClaudeProvider {
     org_id: Option<String>,
     #[allow(dead_code)]
     account: Option<ApiAccount>,
+    credential_store: Arc<dyn CredentialStore>,
 }
 
 impl ClaudeProvider {
     /// Create a new Claude provider, loading credentials from keyring if available
     pub fn new() -> Self {
-        let (cookies, org_id) = load_credentials_from_keyring();
+        Self::with_credential_store(Arc::new(KeyringStore::new()))
+    }
+
+    /// Create with a custom credential store (for testing)
+    pub fn with_credential_store(credential_store: Arc<dyn CredentialStore>) -> Self {
+        let cookies = credential_store
+            .get(KEYRING_SERVICE, KEYRING_USER_COOKIES)
+            .ok();
+        let org_id = credential_store
+            .get(KEYRING_SERVICE, KEYRING_USER_ORG)
+            .ok();
         let client = build_client(cookies.as_deref());
 
         Self {
@@ -38,18 +51,21 @@ impl ClaudeProvider {
             cookies,
             org_id,
             account: None,
+            credential_store,
         }
     }
 
     /// Create a provider with explicit credentials (for testing)
     #[cfg(test)]
     pub fn with_credentials(cookies: Option<String>, org_id: Option<String>) -> Self {
+        use crate::credentials::MockStore;
         let client = build_client(cookies.as_deref());
         Self {
             client,
             cookies,
             org_id,
             account: None,
+            credential_store: Arc::new(MockStore::new()),
         }
     }
 
@@ -110,9 +126,6 @@ impl ClaudeProvider {
                 return serde_json::from_value(account.clone())
                     .map_err(|e| ProviderError::Parse(e.to_string()));
             }
-
-            // Maybe the account is at a different path - let's check what we got
-            eprintln!("DEBUG: bootstrap keys: {:?}", bootstrap.as_object().map(|o| o.keys().collect::<Vec<_>>()));
         }
 
         // Fallback: create a minimal account from what we know
@@ -188,6 +201,86 @@ impl ClaudeProvider {
             created_at: api_msg.created_at,
             model: None, // Model is at conversation level in Claude
         }
+    }
+
+    /// Fetch a conversation with its attachments (for sync)
+    pub async fn conversation_with_attachments(
+        &self,
+        id: &str,
+    ) -> Result<(Conversation, Vec<Message>, Vec<Attachment>)> {
+        if self.cookies.is_none() {
+            return Err(ProviderError::AuthRequired);
+        }
+
+        let org_id = self.get_org_id().await?;
+        let url = format!(
+            "{}/organizations/{}/chat_conversations/{}",
+            API_BASE, org_id, id
+        );
+
+        let api_conv: ApiConversation = self
+            .client
+            .get(&url)
+            .send()
+            .await?
+            .error_for_status()
+            .map_err(|e| ProviderError::Api(e.to_string()))?
+            .json()
+            .await?;
+
+        let conversation = self.convert_conversation(&api_conv);
+        let messages: Vec<Message> = api_conv
+            .chat_messages
+            .iter()
+            .map(|m| self.convert_message(id, m))
+            .collect();
+        let attachments = self.extract_attachments(&api_conv);
+
+        Ok((conversation, messages, attachments))
+    }
+
+    /// Extract attachments from a conversation's messages
+    fn extract_attachments(&self, api_conv: &ApiConversation) -> Vec<Attachment> {
+        let mut attachments = Vec::new();
+
+        for msg in &api_conv.chat_messages {
+            // Extract from files array (current API format)
+            for file in &msg.files {
+                if let Some(uuid) = file.uuid() {
+                    attachments.push(Attachment {
+                        id: uuid.to_string(),
+                        message_id: msg.uuid.clone(),
+                        filename: file.file_name.clone(),
+                        mime_type: file.mime_type(),
+                        size_bytes: file.file_size.unwrap_or(0),
+                        download_url: uuid.to_string(), // We use file_uuid as the download identifier
+                    });
+                }
+            }
+
+            // Extract from attachments array (legacy format)
+            // Skip attachments with extracted_content - these were pasted content, not actual files
+            for att in &msg.attachments {
+                // If extracted_content exists, the content was inline text that Claude parsed
+                // These don't have downloadable files on Claude's servers
+                if att.extracted_content.is_some() {
+                    continue;
+                }
+
+                if let Some(ref id) = att.id {
+                    attachments.push(Attachment {
+                        id: id.clone(),
+                        message_id: msg.uuid.clone(),
+                        filename: att.file_name.clone(),
+                        mime_type: att.file_type.clone().unwrap_or_else(|| "application/octet-stream".to_string()),
+                        size_bytes: att.file_size.unwrap_or(0),
+                        download_url: id.clone(),
+                    });
+                }
+            }
+        }
+
+        attachments
     }
 }
 
@@ -295,8 +388,13 @@ impl Provider for ClaudeProvider {
                 let org_id = self.get_org_id().await?;
                 self.org_id = Some(org_id.clone());
 
-                // Save to keyring
-                save_credentials_to_keyring(cookie_str, &org_id);
+                // Save to credential store
+                if let Err(e) = self.credential_store.set(KEYRING_SERVICE, KEYRING_USER_COOKIES, cookie_str) {
+                    eprintln!("Warning: failed to save cookies: {}", e);
+                }
+                if let Err(e) = self.credential_store.set(KEYRING_SERVICE, KEYRING_USER_ORG, &org_id) {
+                    eprintln!("Warning: failed to save org ID: {}", e);
+                }
 
                 println!("Authentication successful!");
             }
@@ -321,8 +419,8 @@ impl Provider for ClaudeProvider {
         Ok(Account {
             id: api_account.uuid.clone(),
             provider: ProviderId::claude(),
-            email: api_account.email.unwrap_or_else(|| "unknown".to_string()),
-            name: api_account.name,
+            email: api_account.email.clone().unwrap_or_else(|| "unknown".to_string()),
+            name: api_account.best_name(),
             avatar_url: api_account.avatar_url,
         })
     }
@@ -405,13 +503,36 @@ impl Provider for ClaudeProvider {
 
     async fn download_attachment(
         &self,
-        _attachment: &Attachment,
-        _path: &Path,
+        attachment: &Attachment,
+        path: &Path,
     ) -> Result<()> {
-        // TODO: Implement attachment download for Claude
-        Err(ProviderError::Api(
-            "Attachment download not yet implemented for Claude".to_string(),
-        ))
+        if self.cookies.is_none() {
+            return Err(ProviderError::AuthRequired);
+        }
+
+        let org_id = self.get_org_id().await?;
+
+        // The download_url should be the file_uuid
+        // URL pattern: /api/{org_id}/files/{file_uuid}/preview
+        let file_uuid = &attachment.download_url;
+        let url = format!("{}/{}/files/{}/preview", API_BASE, org_id, file_uuid);
+
+        let response = self.client.get(&url).send().await?;
+
+        if !response.status().is_success() {
+            return Err(ProviderError::Api(format!(
+                "Failed to download file: {}",
+                response.status()
+            )));
+        }
+
+        let bytes = response.bytes().await?;
+
+        tokio::fs::write(path, bytes)
+            .await
+            .map_err(|e| ProviderError::Api(format!("Failed to write file: {}", e)))?;
+
+        Ok(())
     }
 }
 
@@ -454,30 +575,6 @@ fn build_client(cookies: Option<&str>) -> Client {
         .deflate(true)
         .build()
         .expect("Failed to build HTTP client")
-}
-
-/// Load credentials from system keyring
-fn load_credentials_from_keyring() -> (Option<String>, Option<String>) {
-    let cookies = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_COOKIES)
-        .ok()
-        .and_then(|entry| entry.get_password().ok());
-
-    let org_id = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_ORG)
-        .ok()
-        .and_then(|entry| entry.get_password().ok());
-
-    (cookies, org_id)
-}
-
-/// Save credentials to system keyring
-fn save_credentials_to_keyring(cookies: &str, org_id: &str) {
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_COOKIES) {
-        let _ = entry.set_password(cookies);
-    }
-
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_ORG) {
-        let _ = entry.set_password(org_id);
-    }
 }
 
 /// Safely truncate a string at a char boundary

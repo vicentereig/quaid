@@ -1,5 +1,6 @@
 mod types;
 
+use crate::credentials::{CredentialStore, KeyringStore};
 use crate::providers::{
     Account, Attachment, Conversation, Message, MessageContent, Provider, ProviderId,
     ProviderError, Result, Role,
@@ -27,19 +28,30 @@ pub struct ChatGptProvider {
     client: Client,
     token: Arc<RwLock<Option<String>>>,
     account_id: Arc<RwLock<Option<String>>>, // For team accounts
+    credential_store: Arc<dyn CredentialStore>,
 }
 
 impl ChatGptProvider {
     pub fn new() -> Self {
-        // Try to load token and cookies from keyring
-        let stored_token = Self::load_token_from_keyring();
-        let stored_cookies = Self::load_cookies_from_keyring();
+        Self::with_credential_store(Arc::new(KeyringStore::new()))
+    }
+
+    /// Create with a custom credential store (for testing)
+    pub fn with_credential_store(credential_store: Arc<dyn CredentialStore>) -> Self {
+        // Try to load token and cookies from credential store
+        let stored_token = credential_store
+            .get(KEYRING_SERVICE, KEYRING_USER_TOKEN)
+            .ok();
+        let stored_cookies = credential_store
+            .get(KEYRING_SERVICE, KEYRING_USER_COOKIES)
+            .ok();
         let client = Self::build_client(stored_cookies.as_deref());
 
         Self {
             client,
             token: Arc::new(RwLock::new(stored_token)),
             account_id: Arc::new(RwLock::new(None)),
+            credential_store,
         }
     }
 
@@ -49,6 +61,7 @@ impl ChatGptProvider {
             client: Self::build_client(None),
             token: Arc::new(RwLock::new(Some(token))),
             account_id: Arc::new(RwLock::new(None)),
+            credential_store: Arc::new(KeyringStore::new()),
         }
     }
 
@@ -89,33 +102,17 @@ impl ChatGptProvider {
             .expect("Failed to create HTTP client")
     }
 
-    /// Load token from system keyring
-    fn load_token_from_keyring() -> Option<String> {
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_TOKEN)
-            .ok()
-            .and_then(|entry| entry.get_password().ok())
-    }
-
-    /// Save token to system keyring
-    fn save_token_to_keyring(token: &str) -> Result<()> {
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_TOKEN)
-            .map_err(|e| ProviderError::AuthFailed(format!("Keyring error: {}", e)))?
-            .set_password(token)
+    /// Save token to credential store
+    fn save_token(&self, token: &str) -> Result<()> {
+        self.credential_store
+            .set(KEYRING_SERVICE, KEYRING_USER_TOKEN, token)
             .map_err(|e| ProviderError::AuthFailed(format!("Failed to save token: {}", e)))
     }
 
-    /// Load cookies from system keyring
-    fn load_cookies_from_keyring() -> Option<String> {
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_COOKIES)
-            .ok()
-            .and_then(|entry| entry.get_password().ok())
-    }
-
-    /// Save cookies to system keyring
-    fn save_cookies_to_keyring(cookies: &str) -> Result<()> {
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER_COOKIES)
-            .map_err(|e| ProviderError::AuthFailed(format!("Keyring error: {}", e)))?
-            .set_password(cookies)
+    /// Save cookies to credential store
+    fn save_cookies(&self, cookies: &str) -> Result<()> {
+        self.credential_store
+            .set(KEYRING_SERVICE, KEYRING_USER_COOKIES, cookies)
             .map_err(|e| ProviderError::AuthFailed(format!("Failed to save cookies: {}", e)))
     }
 
@@ -412,14 +409,14 @@ impl Provider for ChatGptProvider {
                     .join("; ")
             });
 
-        // Store the token in memory and keyring
+        // Store the token in memory and credential store
         *self.token.write().await = Some(token.clone());
-        Self::save_token_to_keyring(&token)?;
+        self.save_token(&token)?;
 
         // Save cookies if we got them
         if let Some(ref cookie_str) = cookies {
             if !cookie_str.is_empty() {
-                Self::save_cookies_to_keyring(cookie_str)?;
+                self.save_cookies(cookie_str)?;
                 // Rebuild client with cookies
                 self.client = Self::build_client(Some(cookie_str));
             }
@@ -719,10 +716,11 @@ fn convert_content(content: &serde_json::Value) -> Option<MessageContent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::credentials::MockStore;
 
     #[test]
     fn test_provider_id() {
-        let provider = ChatGptProvider::new();
+        let provider = ChatGptProvider::with_credential_store(Arc::new(MockStore::new()));
         assert_eq!(provider.id(), ProviderId::chatgpt());
     }
 
@@ -789,7 +787,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_provider_unauthenticated() {
-        let provider = ChatGptProvider::new();
+        let provider = ChatGptProvider::with_credential_store(Arc::new(MockStore::new()));
         assert!(!provider.is_authenticated().await);
     }
 
@@ -801,8 +799,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_token_when_none() {
-        let provider = ChatGptProvider::new();
+        let provider = ChatGptProvider::with_credential_store(Arc::new(MockStore::new()));
         let result = provider.get_token().await;
         assert!(matches!(result, Err(ProviderError::AuthRequired)));
+    }
+
+    #[tokio::test]
+    async fn test_provider_with_stored_credentials() {
+        let store = MockStore::with_credentials(vec![
+            (KEYRING_SERVICE, KEYRING_USER_TOKEN, "stored-token"),
+        ]);
+        let provider = ChatGptProvider::with_credential_store(Arc::new(store));
+        assert!(provider.is_authenticated().await);
+        assert_eq!(provider.get_token().await.unwrap(), "stored-token");
     }
 }

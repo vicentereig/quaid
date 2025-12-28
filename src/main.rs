@@ -18,20 +18,35 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Authenticate with a provider
-    Auth {
-        /// Provider to authenticate with (chatgpt, claude, gemini)
-        provider: String,
+    /// ChatGPT provider commands
+    Chatgpt {
+        #[command(subcommand)]
+        action: ProviderAction,
     },
 
-    /// Pull conversations from a provider
-    Pull {
-        /// Provider to pull from (chatgpt, claude, gemini, or --all)
-        provider: Option<String>,
+    /// Claude provider commands
+    Claude {
+        #[command(subcommand)]
+        action: ProviderAction,
+    },
 
-        /// Pull from all configured providers
+    /// Fathom.video provider commands
+    Fathom {
+        #[command(subcommand)]
+        action: ProviderAction,
+    },
+
+    /// Granola provider commands
+    Granola {
+        #[command(subcommand)]
+        action: ProviderAction,
+    },
+
+    /// Pull from all configured providers (or specify one with quaid <provider> pull)
+    Pull {
+        /// Only pull new or updated conversations
         #[arg(long)]
-        all: bool,
+        new_only: bool,
     },
 
     /// List local conversations
@@ -73,6 +88,20 @@ enum Commands {
     Stats,
 }
 
+/// Actions available for each provider
+#[derive(Subcommand)]
+enum ProviderAction {
+    /// Authenticate with this provider
+    Auth,
+
+    /// Pull conversations from this provider
+    Pull {
+        /// Only pull new or updated conversations
+        #[arg(long)]
+        new_only: bool,
+    },
+}
+
 fn get_data_dir(cli_path: Option<PathBuf>) -> PathBuf {
     cli_path.unwrap_or_else(|| {
         dirs::data_dir()
@@ -93,11 +122,40 @@ async fn main() -> anyhow::Result<()> {
     let store = quaid_core::Store::open(&db_path)?;
 
     match cli.command {
-        Commands::Auth { provider } => {
-            commands::auth::run(&provider, &store).await?;
-        }
-        Commands::Pull { provider, all } => {
-            commands::pull::run(provider.as_deref(), all, &store, &data_dir).await?;
+        Commands::Chatgpt { action } => match action {
+            ProviderAction::Auth => {
+                commands::auth::run("chatgpt", &store).await?;
+            }
+            ProviderAction::Pull { new_only } => {
+                commands::pull::run(Some("chatgpt"), new_only, &store, &data_dir).await?;
+            }
+        },
+        Commands::Claude { action } => match action {
+            ProviderAction::Auth => {
+                commands::auth::run("claude", &store).await?;
+            }
+            ProviderAction::Pull { new_only } => {
+                commands::pull::run(Some("claude"), new_only, &store, &data_dir).await?;
+            }
+        },
+        Commands::Fathom { action } => match action {
+            ProviderAction::Auth => {
+                commands::auth::run("fathom", &store).await?;
+            }
+            ProviderAction::Pull { new_only } => {
+                commands::pull::run(Some("fathom"), new_only, &store, &data_dir).await?;
+            }
+        },
+        Commands::Granola { action } => match action {
+            ProviderAction::Auth => {
+                commands::auth::run("granola", &store).await?;
+            }
+            ProviderAction::Pull { new_only } => {
+                commands::pull::run(Some("granola"), new_only, &store, &data_dir).await?;
+            }
+        },
+        Commands::Pull { new_only } => {
+            commands::pull::run(None, new_only, &store, &data_dir).await?;
         }
         Commands::List { provider, archived } => {
             commands::list::run(provider.as_deref(), archived, &store)?;
