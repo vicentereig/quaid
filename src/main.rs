@@ -68,6 +68,14 @@ enum Commands {
         /// Maximum number of results
         #[arg(long, default_value = "20")]
         limit: usize,
+
+        /// Use semantic (vector) search
+        #[arg(long)]
+        semantic: bool,
+
+        /// Use hybrid search (FTS + semantic)
+        #[arg(long)]
+        hybrid: bool,
     },
 
     /// Export conversations
@@ -160,8 +168,13 @@ async fn main() -> anyhow::Result<()> {
         Commands::List { provider, archived } => {
             commands::list::run(provider.as_deref(), archived, &store)?;
         }
-        Commands::Search { query, limit } => {
-            commands::search::run(&query, limit, &store)?;
+        Commands::Search {
+            query,
+            limit,
+            semantic,
+            hybrid,
+        } => {
+            commands::search::run(&query, limit, semantic, hybrid, &store, &data_dir)?;
         }
         Commands::Export {
             path,
