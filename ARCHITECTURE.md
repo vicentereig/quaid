@@ -470,12 +470,20 @@ embeddings/
 └── claude/
 ```
 
+**Why write per-conversation first, then consolidate?**
+
+Parquet is columnar and immutable - you can't append rows. The alternatives are:
+- Read entire file → add rows → rewrite (slow for large files, risky if interrupted)
+- Write per-conversation → merge at end (current approach, safer)
+
+The merge step is fast since it just concatenates row groups, and runs once at the end of pull.
+
 **Benefits:**
 - Reduces file handles from 353 → 4 during search
 - Faster DuckDB query planning
 - Search prefers consolidated files, falls back to per-conversation
 
-Manual compaction: `quaid compact`
+Manual compaction: `quaid compact` (rarely needed, auto-runs after pull)
 
 ## Future Enhancements
 
