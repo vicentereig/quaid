@@ -399,26 +399,31 @@ Embed Thread 1:          Embed Thread 2:
 | Per conversation | ~1-10MB |
 | Channel buffers | ~50MB (100 * 500KB) |
 
-## Future Enhancements
+## Search Architecture
 
-### Vector Search (Planned)
+### Vector Search (Implemented)
+
+Semantic search uses L2 distance on embeddings stored in Parquet files:
 
 ```sql
--- Using DuckDB VSS extension
-LOAD vss;
-
-CREATE INDEX embedding_idx ON embeddings
-USING HNSW (vector)
-WITH (metric = 'l2');
-
-SELECT conversation_id,
-       array_distance(vector, $query_embedding::FLOAT[384]) as distance
-FROM embeddings
+-- Query embeddings with L2 distance
+SELECT
+    conversation_id,
+    chunk_text,
+    list_sum(list_transform(
+        list_zip(embedding, $query_embedding),
+        x -> power(x[1] - x[2], 2)
+    )) as distance
+FROM read_parquet('~/.quaid/embeddings/*/*.parquet')
 ORDER BY distance
 LIMIT 10;
 ```
 
-### Hybrid Search (Planned)
+Usage: `quaid search "how to deploy apps" --semantic`
+
+### Hybrid Search (Implemented)
+
+Combines FTS and semantic search using Reciprocal Rank Fusion (RRF):
 
 ```
 Query: "kubernetes deployment"
@@ -427,16 +432,24 @@ Query: "kubernetes deployment"
          │                  │                  │
          ▼                  ▼                  ▼
     ┌─────────┐       ┌──────────┐      ┌───────────┐
-    │   FTS   │       │ Semantic │      │  Hybrid   │
-    │ SQLite  │       │ DuckDB   │      │  Fusion   │
+    │   FTS   │       │ Semantic │      │   RRF     │
+    │ DuckDB  │       │ DuckDB   │      │  Fusion   │
     └────┬────┘       └────┬─────┘      └─────┬─────┘
          │                 │                  │
          ▼                 ▼                  ▼
-    [doc1, doc3]     [doc2, doc3]        RRF Score
+    [doc1, doc3]     [doc2, doc3]      1/(k+rank)
          │                 │                  │
          └─────────────────┴──────────────────┘
                            │
                            ▼
                     [doc3, doc1, doc2]
-                    (re-ranked results)
+                    (re-ranked by RRF score)
 ```
+
+Usage: `quaid search "kubernetes" --hybrid`
+
+## Future Enhancements
+
+- [ ] Gemini provider support
+- [ ] HNSW index for faster k-NN search at scale
+- [ ] Conversation-level embeddings (mean pooled)

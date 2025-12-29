@@ -45,8 +45,14 @@ quaid chatgpt pull
 # Pull only new/updated conversations
 quaid pull --new-only
 
-# Search across all chats
+# Search across all chats (full-text)
 quaid search "kubernetes deployment"
+
+# Semantic search (vector similarity)
+quaid search "how to deploy apps" --semantic
+
+# Hybrid search (FTS + semantic combined)
+quaid search "kubernetes" --hybrid
 
 # Export to file
 quaid export backup.jsonl --format jsonl
@@ -62,8 +68,6 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed system design, pipeline diag
 ## Coming Soon
 
 - [ ] Gemini support
-- [ ] Semantic search CLI (`quaid search --semantic`)
-- [ ] Vector similarity with DuckDB VSS extension
 
 ## License
 
