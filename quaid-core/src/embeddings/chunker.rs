@@ -47,6 +47,32 @@ impl MessageChunker {
         Self { config }
     }
 
+    /// Find the nearest valid UTF-8 character boundary at or before the given byte index
+    fn floor_char_boundary(s: &str, index: usize) -> usize {
+        if index >= s.len() {
+            return s.len();
+        }
+        // Walk backwards to find a valid char boundary
+        let mut i = index;
+        while i > 0 && !s.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    }
+
+    /// Find the nearest valid UTF-8 character boundary at or after the given byte index
+    fn ceil_char_boundary(s: &str, index: usize) -> usize {
+        if index >= s.len() {
+            return s.len();
+        }
+        // Walk forwards to find a valid char boundary
+        let mut i = index;
+        while i < s.len() && !s.is_char_boundary(i) {
+            i += 1;
+        }
+        i
+    }
+
     /// Extract text content from a message
     pub fn extract_text(content: &MessageContent) -> String {
         match content {
@@ -80,7 +106,11 @@ impl MessageChunker {
         let mut start = 0;
 
         while start < text.len() {
-            let end = (start + self.config.max_chunk_chars).min(text.len());
+            // Ensure end is at a valid char boundary
+            let end = Self::floor_char_boundary(
+                text,
+                (start + self.config.max_chunk_chars).min(text.len()),
+            );
 
             // Try to find a good break point (sentence boundary or paragraph)
             let chunk_end = if end < text.len() {
@@ -99,7 +129,11 @@ impl MessageChunker {
                 break;
             }
 
-            start = chunk_end.saturating_sub(self.config.overlap_chars);
+            // Ensure new start is at a valid char boundary
+            start = Self::ceil_char_boundary(
+                text,
+                chunk_end.saturating_sub(self.config.overlap_chars),
+            );
 
             // Ensure we make progress
             if start <= chunks.len().saturating_sub(1) * self.config.max_chunk_chars {
@@ -112,7 +146,14 @@ impl MessageChunker {
 
     /// Find a good break point (prefer sentence/paragraph boundaries)
     fn find_break_point(&self, text: &str, _start: usize, max_end: usize) -> usize {
-        let search_start = max_end.saturating_sub(self.config.overlap_chars);
+        // Ensure boundaries are valid UTF-8 char boundaries
+        let max_end = Self::floor_char_boundary(text, max_end);
+        let search_start = Self::ceil_char_boundary(
+            text,
+            max_end.saturating_sub(self.config.overlap_chars),
+        );
+
+        // Safety: search_start and max_end are now guaranteed to be valid char boundaries
         let search_text = &text[search_start..max_end];
 
         // Look for paragraph break
@@ -125,11 +166,14 @@ impl MessageChunker {
             if c == '.' || c == '!' || c == '?' {
                 // Check if followed by space or end
                 let next_idx = search_start + i + c.len_utf8();
-                if next_idx >= max_end
-                    || text[next_idx..].starts_with(' ')
-                    || text[next_idx..].starts_with('\n')
-                {
+                if next_idx >= max_end {
                     return next_idx;
+                }
+                // Safely check next character
+                if let Some(next_char) = text[next_idx..].chars().next() {
+                    if next_char == ' ' || next_char == '\n' {
+                        return next_idx;
+                    }
                 }
             }
         }
@@ -400,5 +444,51 @@ mod tests {
         assert_eq!(chunks[0].message_id, "msg-1");
         assert_eq!(chunks[1].message_id, "msg-2");
         assert_eq!(chunks[2].message_id, "msg-3");
+    }
+
+    #[test]
+    fn test_chunk_utf8_multibyte_characters() {
+        // Test with text containing multi-byte UTF-8 characters like box drawing and emojis
+        let config = ChunkerConfig {
+            max_chunk_chars: 100,
+            overlap_chars: 20,
+        };
+        let chunker = MessageChunker::new(config);
+
+        // Text with box drawing chars (3 bytes each: ─, │, ┌, ┐, └, ┘)
+        let text = "┌──────────────────┐\n│ Box with content │\n└──────────────────┘ ".repeat(10);
+        let chunks = chunker.chunk_text(&text);
+        assert!(!chunks.is_empty(), "Should produce chunks");
+        for chunk in &chunks {
+            assert!(chunk.is_ascii() || chunk.len() > 0, "Chunk should be valid");
+        }
+
+        // Text with emojis (4 bytes each)
+        let emoji_text = "Hello ✅ world 🎉 test 🚀 more text here to make it longer. ".repeat(20);
+        let emoji_chunks = chunker.chunk_text(&emoji_text);
+        assert!(!emoji_chunks.is_empty(), "Should produce emoji chunks");
+
+        // Text with mixed scripts (Chinese, Arabic, etc.)
+        let unicode_text = "你好世界 مرحبا 🌍 Hello! ".repeat(30);
+        let unicode_chunks = chunker.chunk_text(&unicode_text);
+        assert!(!unicode_chunks.is_empty(), "Should produce unicode chunks");
+    }
+
+    #[test]
+    fn test_floor_ceil_char_boundary() {
+        // String with multi-byte char: "─" is bytes 0-2 (3 bytes)
+        let s = "─abc";
+
+        // floor_char_boundary should find boundary at or before
+        assert_eq!(MessageChunker::floor_char_boundary(s, 0), 0);
+        assert_eq!(MessageChunker::floor_char_boundary(s, 1), 0); // Inside ─, go back to 0
+        assert_eq!(MessageChunker::floor_char_boundary(s, 2), 0); // Inside ─, go back to 0
+        assert_eq!(MessageChunker::floor_char_boundary(s, 3), 3); // At 'a'
+
+        // ceil_char_boundary should find boundary at or after
+        assert_eq!(MessageChunker::ceil_char_boundary(s, 0), 0);
+        assert_eq!(MessageChunker::ceil_char_boundary(s, 1), 3); // Inside ─, go forward to 'a'
+        assert_eq!(MessageChunker::ceil_char_boundary(s, 2), 3); // Inside ─, go forward to 'a'
+        assert_eq!(MessageChunker::ceil_char_boundary(s, 3), 3); // At 'a'
     }
 }
