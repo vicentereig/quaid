@@ -448,6 +448,35 @@ Query: "kubernetes deployment"
 
 Usage: `quaid search "kubernetes" --hybrid`
 
+### Embeddings Compaction
+
+During pull, embeddings are written per-conversation:
+```
+embeddings/
+├── chatgpt/
+│   ├── conv-1.parquet
+│   ├── conv-2.parquet
+│   └── ... (hundreds of files)
+└── claude/
+    └── ...
+```
+
+After indexing, auto-compaction consolidates into one file per provider:
+```
+embeddings/
+├── chatgpt.parquet    ← All ChatGPT embeddings (1 file)
+├── chatgpt/           ← Archived per-conversation files
+├── claude.parquet
+└── claude/
+```
+
+**Benefits:**
+- Reduces file handles from 353 → 4 during search
+- Faster DuckDB query planning
+- Search prefers consolidated files, falls back to per-conversation
+
+Manual compaction: `quaid compact`
+
 ## Future Enhancements
 
 - [ ] Gemini provider support

@@ -5,7 +5,8 @@ use quaid_core::{
         chatgpt::ChatGptProvider, claude::ClaudeProvider, fathom::FathomProvider,
         granola::GranolaProvider, Conversation, Message,
     },
-    Provider, Store,
+    storage::ParquetStorageConfig,
+    EmbeddingsCompactor, Provider, Store,
 };
 use std::path::Path;
 
@@ -509,6 +510,11 @@ fn run_pipeline(
                     eprintln!("  - {}", err);
                 }
             }
+
+            // Auto-compact embeddings for faster semantic search
+            if result.embeddings_generated > 0 {
+                compact_embeddings(data_dir);
+            }
         }
         Err(e) => {
             eprintln!("Pipeline error: {}", e);
@@ -516,4 +522,23 @@ fn run_pipeline(
     }
 
     Ok(())
+}
+
+/// Compact embeddings into consolidated files per provider
+fn compact_embeddings(data_dir: &Path) {
+    let config = ParquetStorageConfig::new(data_dir);
+    let compactor = EmbeddingsCompactor::new(config);
+
+    match compactor.compact_all() {
+        Ok(results) => {
+            if !results.is_empty() {
+                let total_rows: usize = results.iter().map(|r| r.total_rows).sum();
+                println!("Compacted embeddings: {} rows", total_rows);
+            }
+        }
+        Err(e) => {
+            // Non-fatal - search still works without compaction
+            eprintln!("Warning: failed to compact embeddings: {}", e);
+        }
+    }
 }
