@@ -111,6 +111,48 @@ impl ParquetStorageConfig {
             .join(format!("{}.parquet", conversation_id))
     }
 
+    /// Path for consolidated embeddings file (one per provider)
+    pub fn consolidated_embeddings_path(&self, provider: &str) -> std::path::PathBuf {
+        self.base_dir
+            .join("embeddings")
+            .join(format!("{}.parquet", provider))
+    }
+
+    /// Directory containing per-conversation embeddings for a provider
+    pub fn embeddings_dir(&self, provider: &str) -> std::path::PathBuf {
+        self.base_dir.join("embeddings").join(provider)
+    }
+
+    /// List all providers that have embeddings (either consolidated or per-conversation)
+    pub fn list_embedding_providers(&self) -> std::io::Result<Vec<String>> {
+        let embeddings_dir = self.base_dir.join("embeddings");
+        if !embeddings_dir.exists() {
+            return Ok(vec![]);
+        }
+
+        let mut providers = Vec::new();
+        for entry in std::fs::read_dir(&embeddings_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_dir() {
+                // Per-conversation directory (e.g., embeddings/fathom/)
+                if let Some(name) = path.file_name() {
+                    providers.push(name.to_string_lossy().to_string());
+                }
+            } else if path.extension().map(|e| e == "parquet").unwrap_or(false) {
+                // Consolidated file (e.g., embeddings/fathom.parquet)
+                if let Some(stem) = path.file_stem() {
+                    let provider = stem.to_string_lossy().to_string();
+                    if !providers.contains(&provider) {
+                        providers.push(provider);
+                    }
+                }
+            }
+        }
+        Ok(providers)
+    }
+
     /// Path for a conversation's media directory
     pub fn media_dir(&self, provider: &str, conversation_id: &str) -> std::path::PathBuf {
         self.base_dir

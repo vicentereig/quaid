@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod compact;
 pub mod export;
 pub mod list;
 pub mod pull;

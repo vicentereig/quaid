@@ -94,6 +94,9 @@ enum Commands {
 
     /// Show statistics
     Stats,
+
+    /// Compact embeddings for faster semantic search
+    Compact,
 }
 
 /// Actions available for each provider
@@ -185,6 +188,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Stats => {
             commands::stats::run(&store)?;
+        }
+        Commands::Compact => {
+            commands::compact::run(&data_dir)?;
         }
     }
 

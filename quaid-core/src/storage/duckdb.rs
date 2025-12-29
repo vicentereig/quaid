@@ -385,24 +385,39 @@ impl DuckDbQuery {
     ///
     /// Computes L2 distance between the query embedding and stored embeddings,
     /// returning the top-k most similar chunks.
+    ///
+    /// Prefers consolidated files (embeddings/*.parquet) over per-conversation
+    /// files (embeddings/*/*.parquet) for better performance.
     pub fn search_semantic(
         &self,
         query_embedding: &[f32],
         limit: usize,
     ) -> Result<Vec<SemanticSearchResult>> {
-        let glob_pattern = self
+        // Try consolidated files first (embeddings/*.parquet)
+        let consolidated_pattern = self
+            .config
+            .base_dir
+            .join("embeddings")
+            .join("*.parquet");
+        let consolidated_str = consolidated_pattern.to_string_lossy();
+
+        // Fall back to per-conversation files (embeddings/*/*.parquet)
+        let per_conv_pattern = self
             .config
             .base_dir
             .join("embeddings")
             .join("*")
             .join("*.parquet");
+        let per_conv_str = per_conv_pattern.to_string_lossy();
 
-        let glob_str = glob_pattern.to_string_lossy();
-
-        // Check if any embedding files exist
-        if !self.has_parquet_files(&glob_str)? {
+        // Determine which pattern to use
+        let glob_str = if self.has_parquet_files(&consolidated_str)? {
+            consolidated_str
+        } else if self.has_parquet_files(&per_conv_str)? {
+            per_conv_str
+        } else {
             return Ok(vec![]);
-        }
+        };
 
         // Convert query embedding to DuckDB list format
         let embedding_str = format!(

@@ -2,11 +2,13 @@
 //!
 //! Stores conversations, messages, and attachments with full-text search support.
 
+pub mod compactor;
 pub mod duckdb;
 pub mod embeddings;
 pub mod parquet;
 pub mod traits;
 
+pub use compactor::{CompactionResult, EmbeddingsCompactor, ProviderStatus};
 pub use embeddings::EmbeddingsStore;
 pub use traits::*;
 
