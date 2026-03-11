@@ -211,6 +211,21 @@ impl ChatGptProvider {
         }
     }
 
+    /// Convert a conversation list item to our unified format.
+    fn convert_list_conversation(item: &ApiConversationItem) -> Conversation {
+        Conversation {
+            id: item.id.clone(),
+            provider_id: "chatgpt".to_string(),
+            title: item.title.clone(),
+            created_at: timestamp_to_datetime(item.create_time),
+            updated_at: timestamp_to_datetime(item.update_time.unwrap_or(item.create_time)),
+            model: None,
+            project_id: None,
+            project_name: None,
+            is_archived: false,
+        }
+    }
+
     /// Extract messages from the conversation mapping
     fn extract_messages(api: &ApiConversation) -> Vec<Message> {
         let mut messages = Vec::new();
@@ -465,17 +480,7 @@ impl Provider for ChatGptProvider {
 
         Ok(items
             .iter()
-            .map(|item| Conversation {
-                id: item.id.clone(),
-                provider_id: "chatgpt".to_string(),
-                title: item.title.clone(),
-                created_at: timestamp_to_datetime(item.create_time),
-                updated_at: timestamp_to_datetime(item.create_time), // API doesn't give update_time in list
-                model: None,
-                project_id: None,
-                project_name: None,
-                is_archived: false,
-            })
+            .map(Self::convert_list_conversation)
             .collect())
     }
 
@@ -812,5 +817,35 @@ mod tests {
         let provider = ChatGptProvider::with_credential_store(Arc::new(store));
         assert!(provider.is_authenticated().await);
         assert_eq!(provider.get_token().await.unwrap(), "stored-token");
+    }
+
+    #[test]
+    fn test_convert_list_conversation_prefers_update_time() {
+        let item = ApiConversationItem {
+            id: "conv-1".to_string(),
+            title: "Updated chat".to_string(),
+            create_time: 1725512345.0,
+            update_time: Some(1725512400.0),
+        };
+
+        let conversation = ChatGptProvider::convert_list_conversation(&item);
+
+        assert_eq!(conversation.created_at.timestamp(), 1725512345);
+        assert_eq!(conversation.updated_at.timestamp(), 1725512400);
+    }
+
+    #[test]
+    fn test_convert_list_conversation_falls_back_to_create_time() {
+        let item = ApiConversationItem {
+            id: "conv-2".to_string(),
+            title: "New chat".to_string(),
+            create_time: 1725512345.0,
+            update_time: None,
+        };
+
+        let conversation = ChatGptProvider::convert_list_conversation(&item);
+
+        assert_eq!(conversation.created_at.timestamp(), 1725512345);
+        assert_eq!(conversation.updated_at.timestamp(), 1725512345);
     }
 }

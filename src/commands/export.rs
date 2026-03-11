@@ -12,7 +12,7 @@ pub fn run(
     let accounts = store.list_accounts()?;
 
     if accounts.is_empty() {
-        anyhow::bail!("No accounts configured. Use `quaid auth <provider>` first.");
+        anyhow::bail!("No accounts configured. Use `quaid <provider> auth` first.");
     }
 
     // Collect all conversations to export

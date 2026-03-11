@@ -54,10 +54,6 @@ enum Commands {
         /// Filter by provider
         #[arg(long)]
         provider: Option<String>,
-
-        /// Show archived conversations
-        #[arg(long)]
-        archived: bool,
     },
 
     /// Search conversations
@@ -168,8 +164,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Pull { new_only } => {
             commands::pull::run(None, new_only, &store, &data_dir).await?;
         }
-        Commands::List { provider, archived } => {
-            commands::list::run(provider.as_deref(), archived, &store)?;
+        Commands::List { provider } => {
+            commands::list::run(provider.as_deref(), &store)?;
         }
         Commands::Search {
             query,

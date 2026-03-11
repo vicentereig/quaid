@@ -122,7 +122,7 @@ async fn pull_chatgpt(
 
     // Check if we need to authenticate
     if !provider.is_authenticated().await {
-        println!("Not authenticated. Please run `quaid auth chatgpt` first.");
+        println!("Not authenticated. Please run `quaid chatgpt auth` first.");
         return Ok(());
     }
 
@@ -230,7 +230,7 @@ async fn pull_claude(
 
     // Check if we need to authenticate
     if !provider.is_authenticated().await {
-        println!("Not authenticated. Please run `quaid auth claude` first.");
+        println!("Not authenticated. Please run `quaid claude auth` first.");
         return Ok(());
     }
 
@@ -341,7 +341,7 @@ async fn pull_fathom(
     let provider = FathomProvider::new();
 
     if !provider.is_authenticated().await {
-        println!("Not authenticated. Please run `quaid auth fathom` first.");
+        println!("Not authenticated. Please run `quaid fathom auth` first.");
         return Ok(());
     }
 
@@ -411,7 +411,7 @@ async fn pull_granola(
     let provider = GranolaProvider::new();
 
     if !provider.is_authenticated().await {
-        println!("Not authenticated. Please run `quaid auth granola` first.");
+        println!("Not authenticated. Please run `quaid granola auth` first.");
         println!("(Make sure you're logged into the Granola desktop app)");
         return Ok(());
     }
@@ -540,5 +540,60 @@ fn compact_embeddings(data_dir: &Path) {
             // Non-fatal - search still works without compaction
             eprintln!("Warning: failed to compact embeddings: {}", e);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_skip;
+    use chrono::{Duration, TimeZone, Utc};
+    use quaid_core::{
+        providers::{Account, Conversation, ProviderId},
+        Store,
+    };
+
+    fn test_account() -> Account {
+        Account {
+            id: "acct-1".to_string(),
+            provider: ProviderId::chatgpt(),
+            email: "test@example.com".to_string(),
+            name: Some("Test".to_string()),
+            avatar_url: None,
+        }
+    }
+
+    fn test_conversation(updated_at: chrono::DateTime<Utc>) -> Conversation {
+        Conversation {
+            id: "conv-1".to_string(),
+            provider_id: "chatgpt".to_string(),
+            title: "Test Conversation".to_string(),
+            created_at: Utc.timestamp_opt(1_725_512_345, 0).unwrap(),
+            updated_at,
+            model: None,
+            project_id: None,
+            project_name: None,
+            is_archived: false,
+        }
+    }
+
+    #[test]
+    fn test_should_skip_only_when_remote_is_unchanged() {
+        let store = Store::in_memory().unwrap();
+        let account = test_account();
+        let local_updated_at = Utc.timestamp_opt(1_725_512_400, 0).unwrap();
+
+        store.save_account(&account).unwrap();
+        store
+            .save_conversation(&account.id, &test_conversation(local_updated_at))
+            .unwrap();
+
+        assert!(should_skip("conv-1", local_updated_at, true, &store));
+        assert!(!should_skip(
+            "conv-1",
+            local_updated_at + Duration::seconds(1),
+            true,
+            &store
+        ));
+        assert!(!should_skip("conv-1", local_updated_at, false, &store));
     }
 }

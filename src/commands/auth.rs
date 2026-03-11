@@ -19,7 +19,9 @@ pub async fn run(provider: &str, store: &Store) -> anyhow::Result<()> {
             store.save_account(&account)?;
 
             println!("\nAuthenticated as: {} ({})", account.email, account.id);
-            println!("Account saved. You can now use `quaid pull chatgpt` to sync your conversations.");
+            println!(
+                "Account saved. You can now use `quaid chatgpt pull` to sync your conversations."
+            );
 
             Ok(())
         }
@@ -34,7 +36,9 @@ pub async fn run(provider: &str, store: &Store) -> anyhow::Result<()> {
             store.save_account(&account)?;
 
             println!("\nAuthenticated as: {} ({})", account.email, account.id);
-            println!("Account saved. You can now use `quaid pull claude` to sync your conversations.");
+            println!(
+                "Account saved. You can now use `quaid claude pull` to sync your conversations."
+            );
 
             Ok(())
         }
@@ -52,7 +56,7 @@ pub async fn run(provider: &str, store: &Store) -> anyhow::Result<()> {
 
             println!("\nAuthenticated as: {} ({})", account.email, account.id);
             println!(
-                "Account saved. You can now use `quaid pull fathom` to sync your meetings."
+                "Account saved. You can now use `quaid fathom pull` to sync your meetings."
             );
 
             Ok(())
@@ -68,7 +72,7 @@ pub async fn run(provider: &str, store: &Store) -> anyhow::Result<()> {
 
             println!("\nAuthenticated as: {} ({})", account.email, account.id);
             println!(
-                "Account saved. You can now use `quaid pull granola` to sync your meeting notes."
+                "Account saved. You can now use `quaid granola pull` to sync your meeting notes."
             );
 
             Ok(())

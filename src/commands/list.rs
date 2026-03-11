@@ -1,10 +1,10 @@
 use quaid_core::Store;
 
-pub fn run(provider: Option<&str>, _archived: bool, store: &Store) -> anyhow::Result<()> {
+pub fn run(provider: Option<&str>, store: &Store) -> anyhow::Result<()> {
     let accounts = store.list_accounts()?;
 
     if accounts.is_empty() {
-        println!("No accounts configured. Use `quaid auth <provider>` first.");
+        println!("No accounts configured. Use `quaid <provider> auth` first.");
         return Ok(());
     }
 
@@ -22,7 +22,10 @@ pub fn run(provider: Option<&str>, _archived: bool, store: &Store) -> anyhow::Re
         let conversations = store.list_conversations(&account.id)?;
 
         if conversations.is_empty() {
-            println!("  No conversations yet. Use `quaid pull {}` to sync.", account.provider);
+            println!(
+                "  No conversations yet. Use `quaid {} pull` to sync.",
+                account.provider
+            );
             continue;
         }
 
