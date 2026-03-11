@@ -6,8 +6,8 @@ pub mod types;
 
 use crate::credentials::{CredentialStore, KeyringStore};
 use crate::providers::{
-    Account, Attachment, Conversation, Message, MessageContent, Provider, ProviderId,
-    ProviderError, Result, Role,
+    Account, Attachment, Conversation, Message, MessageContent, Provider, ProviderError,
+    ProviderId, Result, Role,
 };
 use async_trait::async_trait;
 use reqwest::{header, Client};
@@ -41,9 +41,7 @@ impl ClaudeProvider {
         let cookies = credential_store
             .get(KEYRING_SERVICE, KEYRING_USER_COOKIES)
             .ok();
-        let org_id = credential_store
-            .get(KEYRING_SERVICE, KEYRING_USER_ORG)
-            .ok();
+        let org_id = credential_store.get(KEYRING_SERVICE, KEYRING_USER_ORG).ok();
         let client = build_client(cookies.as_deref());
 
         Self {
@@ -272,7 +270,10 @@ impl ClaudeProvider {
                         id: id.clone(),
                         message_id: msg.uuid.clone(),
                         filename: att.file_name.clone(),
-                        mime_type: att.file_type.clone().unwrap_or_else(|| "application/octet-stream".to_string()),
+                        mime_type: att
+                            .file_type
+                            .clone()
+                            .unwrap_or_else(|| "application/octet-stream".to_string()),
                         size_bytes: att.file_size.unwrap_or(0),
                         download_url: id.clone(),
                     });
@@ -389,10 +390,16 @@ impl Provider for ClaudeProvider {
                 self.org_id = Some(org_id.clone());
 
                 // Save to credential store
-                if let Err(e) = self.credential_store.set(KEYRING_SERVICE, KEYRING_USER_COOKIES, cookie_str) {
+                if let Err(e) =
+                    self.credential_store
+                        .set(KEYRING_SERVICE, KEYRING_USER_COOKIES, cookie_str)
+                {
                     eprintln!("Warning: failed to save cookies: {}", e);
                 }
-                if let Err(e) = self.credential_store.set(KEYRING_SERVICE, KEYRING_USER_ORG, &org_id) {
+                if let Err(e) =
+                    self.credential_store
+                        .set(KEYRING_SERVICE, KEYRING_USER_ORG, &org_id)
+                {
                     eprintln!("Warning: failed to save org ID: {}", e);
                 }
 
@@ -419,7 +426,10 @@ impl Provider for ClaudeProvider {
         Ok(Account {
             id: api_account.uuid.clone(),
             provider: ProviderId::claude(),
-            email: api_account.email.clone().unwrap_or_else(|| "unknown".to_string()),
+            email: api_account
+                .email
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
             name: api_account.best_name(),
             avatar_url: api_account.avatar_url,
         })
@@ -501,11 +511,7 @@ impl Provider for ClaudeProvider {
             .collect())
     }
 
-    async fn download_attachment(
-        &self,
-        attachment: &Attachment,
-        path: &Path,
-    ) -> Result<()> {
+    async fn download_attachment(&self, attachment: &Attachment, path: &Path) -> Result<()> {
         if self.cookies.is_none() {
             return Err(ProviderError::AuthRequired);
         }
@@ -550,11 +556,11 @@ fn build_client(cookies: Option<&str>) -> Client {
         header::ACCEPT,
         "application/json, text/plain, */*".parse().unwrap(),
     );
+    headers.insert(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9".parse().unwrap());
     headers.insert(
-        header::ACCEPT_LANGUAGE,
-        "en-US,en;q=0.9".parse().unwrap(),
+        header::ACCEPT_ENCODING,
+        "gzip, deflate, br".parse().unwrap(),
     );
-    headers.insert(header::ACCEPT_ENCODING, "gzip, deflate, br".parse().unwrap());
     headers.insert("Sec-Fetch-Dest", "empty".parse().unwrap());
     headers.insert("Sec-Fetch-Mode", "cors".parse().unwrap());
     headers.insert("Sec-Fetch-Site", "same-origin".parse().unwrap());

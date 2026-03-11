@@ -386,10 +386,8 @@ impl Store {
                 };
 
                 let content_json: String = row.get(4)?;
-                let content: crate::providers::MessageContent =
-                    serde_json::from_str(&content_json).unwrap_or(crate::providers::MessageContent::Text {
-                        text: content_json,
-                    });
+                let content: crate::providers::MessageContent = serde_json::from_str(&content_json)
+                    .unwrap_or(crate::providers::MessageContent::Text { text: content_json });
 
                 let created_at: Option<String> = row.get(5)?;
                 let created_at = created_at.and_then(|s| {
@@ -493,15 +491,15 @@ impl Store {
         let accounts: i64 = self
             .conn
             .query_row("SELECT COUNT(*) FROM accounts", [], |row| row.get(0))?;
-        let conversations: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM conversations", [], |row| row.get(0))?;
+        let conversations: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM conversations", [], |row| row.get(0))?;
         let messages: i64 = self
             .conn
             .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))?;
-        let attachments: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM attachments", [], |row| row.get(0))?;
+        let attachments: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM attachments", [], |row| row.get(0))?;
 
         Ok(StoreStats {
             accounts: accounts as usize,

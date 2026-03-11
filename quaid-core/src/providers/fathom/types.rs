@@ -66,11 +66,7 @@ pub struct ApiMeeting {
 impl ApiMeeting {
     /// Get meeting ID from URL (e.g., https://fathom.video/calls/123 -> 123)
     pub fn id(&self) -> String {
-        self.url
-            .rsplit('/')
-            .next()
-            .unwrap_or(&self.url)
-            .to_string()
+        self.url.rsplit('/').next().unwrap_or(&self.url).to_string()
     }
 
     /// Get the best available title for this meeting
@@ -276,7 +272,11 @@ mod tests {
         };
 
         assert_eq!(summary.template_name, Some("Default".to_string()));
-        assert!(summary.markdown_formatted.as_ref().unwrap().contains("Summary"));
+        assert!(summary
+            .markdown_formatted
+            .as_ref()
+            .unwrap()
+            .contains("Summary"));
     }
 
     #[test]
@@ -291,6 +291,9 @@ mod tests {
 
         let item: ApiActionItem = serde_json::from_str(json).unwrap();
         assert_eq!(item.description, "Review the proposal by Friday");
-        assert_eq!(item.assignee.as_ref().unwrap().name, Some("Charlie".to_string()));
+        assert_eq!(
+            item.assignee.as_ref().unwrap().name,
+            Some("Charlie".to_string())
+        );
     }
 }

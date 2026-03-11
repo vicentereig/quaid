@@ -1,4 +1,4 @@
-use quaid_core::embeddings::{EmbeddingModel, Embedder};
+use quaid_core::embeddings::{Embedder, EmbeddingModel};
 use quaid_core::storage::duckdb::DuckDbQuery;
 use quaid_core::storage::ParquetStorageConfig;
 use quaid_core::Store;
@@ -55,13 +55,12 @@ fn run_semantic_search(
     let mode = if hybrid { "hybrid" } else { "semantic" };
     println!("Searching ({}) for: {}\n", mode, query);
 
-    // Load the embedding model
+    // Load the current embedding backend
     let models_dir = data_dir.join("models");
-    let embedder = match EmbeddingModel::load_or_download(&models_dir) {
+    let embedder = match EmbeddingModel::load_or_fallback(&models_dir) {
         Ok(model) => model,
         Err(e) => {
-            eprintln!("Failed to load embedding model: {}", e);
-            eprintln!("Run `quaid pull` first to download the model.");
+            eprintln!("Failed to initialize the embedding backend: {}", e);
             return Ok(());
         }
     };
@@ -101,15 +100,17 @@ fn run_semantic_search(
     println!("Found {} results:\n", results.len());
 
     for result in results {
+        let metric_label = metric_label(hybrid);
+
         // Get conversation details
         if let Ok(Some(conv)) = store.get_conversation(&result.conversation_id) {
-            println!("📝 {} (score: {:.3})", conv.title, result.score);
+            println!("📝 {} ({}: {:.3})", conv.title, metric_label, result.score);
             println!("   {}", truncate(&result.chunk_text, 80));
             println!("   ID: {}", conv.id);
             println!();
         } else {
             // Conversation not in SQLite, show basic info
-            println!("📝 (score: {:.3})", result.score);
+            println!("📝 ({}: {:.3})", metric_label, result.score);
             println!("   {}", truncate(&result.chunk_text, 80));
             println!("   ID: {}", result.conversation_id);
             println!();
@@ -119,10 +120,33 @@ fn run_semantic_search(
     Ok(())
 }
 
+fn metric_label(hybrid: bool) -> &'static str {
+    if hybrid {
+        "rrf"
+    } else {
+        "distance"
+    }
+}
+
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
         format!("{}...", &s[..max_len - 3])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::metric_label;
+
+    #[test]
+    fn test_metric_label_for_semantic_results() {
+        assert_eq!(metric_label(false), "distance");
+    }
+
+    #[test]
+    fn test_metric_label_for_hybrid_results() {
+        assert_eq!(metric_label(true), "rrf");
     }
 }

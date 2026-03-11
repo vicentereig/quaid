@@ -16,8 +16,8 @@ Export and backup your AI conversations locally.
 - **Incremental sync** — Only pull new/updated conversations with `--new-only`
 - **Parallel pipeline** — Multi-threaded sync with configurable worker pools
 - **Parquet storage** — Columnar format for efficient querying with DuckDB
-- **Semantic search** — ONNX-powered embeddings (multilingual-e5-small)
-- **Hybrid search** — Combine full-text and semantic for best results
+- **Semantic search** — Deterministic local embeddings today, ONNX backend planned
+- **Hybrid search** — Combine full-text and embedding-based ranking
 - **Auto-compaction** — Embeddings consolidated automatically after pull
 - **Full-text search** — SQLite FTS across all providers
 - **Secure credentials** — Tokens stored in system keychain
@@ -61,6 +61,9 @@ quaid compact
 
 # Export to file
 quaid export backup.jsonl --format jsonl
+
+# Export markdown for all conversations into a directory
+quaid export backup/ --format markdown
 
 # View stats
 quaid stats

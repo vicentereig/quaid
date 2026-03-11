@@ -200,7 +200,8 @@ async fn pull_chatgpt(
             let path = attachments_dir.join(&attachment.filename);
             match provider.download_attachment(&attachment, &path).await {
                 Ok(_) => {
-                    store.mark_attachment_downloaded(&attachment.id, path.to_str().unwrap_or(""))?;
+                    store
+                        .mark_attachment_downloaded(&attachment.id, path.to_str().unwrap_or(""))?;
                     println!("  Downloaded: {}", attachment.filename);
                 }
                 Err(e) => {
@@ -312,7 +313,8 @@ async fn pull_claude(
             let path = attachments_dir.join(&attachment.filename);
             match provider.download_attachment(&attachment, &path).await {
                 Ok(_) => {
-                    store.mark_attachment_downloaded(&attachment.id, path.to_str().unwrap_or(""))?;
+                    store
+                        .mark_attachment_downloaded(&attachment.id, path.to_str().unwrap_or(""))?;
                     println!("  Downloaded: {}", attachment.filename);
                 }
                 Err(e) => {

@@ -110,11 +110,24 @@ pub enum Role {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MessageContent {
-    Text { text: String },
-    Code { language: String, code: String },
-    Image { url: String, alt: Option<String> },
-    Audio { url: String, transcript: Option<String> },
-    Mixed { parts: Vec<MessageContent> },
+    Text {
+        text: String,
+    },
+    Code {
+        language: String,
+        code: String,
+    },
+    Image {
+        url: String,
+        alt: Option<String>,
+    },
+    Audio {
+        url: String,
+        transcript: Option<String>,
+    },
+    Mixed {
+        parts: Vec<MessageContent>,
+    },
 }
 
 /// Attachment metadata
@@ -156,8 +169,11 @@ pub trait Provider: Send + Sync {
     async fn project_conversations(&self, project_id: &str) -> Result<Vec<Conversation>>;
 
     /// Download an attachment to a local path
-    async fn download_attachment(&self, attachment: &Attachment, path: &std::path::Path)
-        -> Result<()>;
+    async fn download_attachment(
+        &self,
+        attachment: &Attachment,
+        path: &std::path::Path,
+    ) -> Result<()>;
 }
 
 #[cfg(test)]

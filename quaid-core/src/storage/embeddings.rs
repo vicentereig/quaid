@@ -168,7 +168,9 @@ mod tests {
     }
 
     fn create_test_embedding() -> Vec<f32> {
-        (0..EMBEDDING_DIM).map(|i| i as f32 / EMBEDDING_DIM as f32).collect()
+        (0..EMBEDDING_DIM)
+            .map(|i| i as f32 / EMBEDDING_DIM as f32)
+            .collect()
     }
 
     #[test]

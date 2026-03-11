@@ -20,10 +20,7 @@ pub fn run(data_dir: &Path) -> anyhow::Result<()> {
     if needs_compaction.is_empty() {
         println!("All embeddings are already consolidated:");
         for status in &statuses {
-            println!(
-                "  ✓ {} ({} rows)",
-                status.provider, status.total_rows
-            );
+            println!("  ✓ {} ({} rows)", status.provider, status.total_rows);
         }
         return Ok(());
     }

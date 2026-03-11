@@ -9,8 +9,8 @@
 pub mod types;
 
 use crate::providers::{
-    Account, Attachment, Conversation, Message, MessageContent, Provider, ProviderId,
-    ProviderError, Result, Role,
+    Account, Attachment, Conversation, Message, MessageContent, Provider, ProviderError,
+    ProviderId, Result, Role,
 };
 use async_trait::async_trait;
 use reqwest::{header, Client};
@@ -110,7 +110,11 @@ impl GranolaProvider {
 
         let text = response.text().await.unwrap_or_default();
         let auth_response: WorkOsAuthResponse = serde_json::from_str(&text).map_err(|e| {
-            ProviderError::Parse(format!("Failed to parse WorkOS response: {} - body: {}", e, truncate(&text, 300)))
+            ProviderError::Parse(format!(
+                "Failed to parse WorkOS response: {} - body: {}",
+                e,
+                truncate(&text, 300)
+            ))
         })?;
 
         // CRITICAL: WorkOS rotates refresh tokens - save the new one immediately
@@ -176,7 +180,11 @@ impl GranolaProvider {
 
             let text = response.text().await.unwrap_or_default();
             return serde_json::from_str(&text).map_err(|e| {
-                ProviderError::Parse(format!("Failed to parse response: {} - body: {}", e, truncate(&text, 300)))
+                ProviderError::Parse(format!(
+                    "Failed to parse response: {} - body: {}",
+                    e,
+                    truncate(&text, 300)
+                ))
             });
         }
 
@@ -201,7 +209,11 @@ impl GranolaProvider {
 
         let text = response.text().await.unwrap_or_default();
         serde_json::from_str(&text).map_err(|e| {
-            ProviderError::Parse(format!("Failed to parse response: {} - body: {}", e, truncate(&text, 300)))
+            ProviderError::Parse(format!(
+                "Failed to parse response: {} - body: {}",
+                e,
+                truncate(&text, 300)
+            ))
         })
     }
 
@@ -397,9 +409,7 @@ impl Provider for GranolaProvider {
         Ok(Account {
             id: format!(
                 "granola-{}",
-                first_workspace
-                    .map(|w| w.id.as_str())
-                    .unwrap_or("unknown")
+                first_workspace.map(|w| w.id.as_str()).unwrap_or("unknown")
             ),
             provider: self.id(),
             email,
@@ -410,7 +420,10 @@ impl Provider for GranolaProvider {
 
     async fn conversations(&self) -> Result<Vec<Conversation>> {
         let documents = self.fetch_all_documents().await?;
-        Ok(documents.iter().map(Self::document_to_conversation).collect())
+        Ok(documents
+            .iter()
+            .map(Self::document_to_conversation)
+            .collect())
     }
 
     async fn conversation(&self, id: &str) -> Result<(Conversation, Vec<Message>)> {
@@ -457,11 +470,7 @@ impl Provider for GranolaProvider {
             .collect())
     }
 
-    async fn download_attachment(
-        &self,
-        _attachment: &Attachment,
-        _path: &Path,
-    ) -> Result<()> {
+    async fn download_attachment(&self, _attachment: &Attachment, _path: &Path) -> Result<()> {
         Err(ProviderError::Api(
             "Attachment download not supported for Granola".to_string(),
         ))

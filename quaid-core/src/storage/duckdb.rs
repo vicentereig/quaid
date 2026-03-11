@@ -304,7 +304,10 @@ impl DuckDbQuery {
 
         // Try to query the glob - if no files match, DuckDB will error
         let result = self.conn.query_row(
-            &format!("SELECT COUNT(*) FROM read_parquet('{}') LIMIT 1", glob_pattern),
+            &format!(
+                "SELECT COUNT(*) FROM read_parquet('{}') LIMIT 1",
+                glob_pattern
+            ),
             [],
             |row| row.get::<_, i64>(0),
         );
@@ -394,11 +397,7 @@ impl DuckDbQuery {
         limit: usize,
     ) -> Result<Vec<SemanticSearchResult>> {
         // Try consolidated files first (embeddings/*.parquet)
-        let consolidated_pattern = self
-            .config
-            .base_dir
-            .join("embeddings")
-            .join("*.parquet");
+        let consolidated_pattern = self.config.base_dir.join("embeddings").join("*.parquet");
         let consolidated_str = consolidated_pattern.to_string_lossy();
 
         // Fall back to per-conversation files (embeddings/*/*.parquet)
@@ -517,13 +516,11 @@ impl DuckDbQuery {
         // Add semantic scores
         for (rank, result) in semantic_results.iter().enumerate() {
             let score = 1.0 / (K + rank as f32);
-            let entry = combined
-                .entry(result.conversation_id.clone())
-                .or_insert((
-                    result.message_id.clone(),
-                    result.chunk_text.clone(),
-                    0.0,
-                ));
+            let entry = combined.entry(result.conversation_id.clone()).or_insert((
+                result.message_id.clone(),
+                result.chunk_text.clone(),
+                0.0,
+            ));
             entry.0 = result.message_id.clone();
             entry.1 = result.chunk_text.clone();
             entry.2 += score;
@@ -540,7 +537,11 @@ impl DuckDbQuery {
             })
             .collect();
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(limit);
 
         Ok(results)
@@ -592,14 +593,18 @@ mod tests {
             create_test_message("conv-1", "msg-1", "Hello world"),
             create_test_message("conv-1", "msg-2", "How are you doing today?"),
         ];
-        store.write_conversation("user-123", &conv1, &messages1).unwrap();
+        store
+            .write_conversation("user-123", &conv1, &messages1)
+            .unwrap();
 
         let conv2 = create_test_conversation("conv-2", "Second Conversation");
         let messages2 = vec![
             create_test_message("conv-2", "msg-3", "This is a test message"),
             create_test_message("conv-2", "msg-4", "Testing search functionality"),
         ];
-        store.write_conversation("user-123", &conv2, &messages2).unwrap();
+        store
+            .write_conversation("user-123", &conv2, &messages2)
+            .unwrap();
 
         config
     }
@@ -635,7 +640,9 @@ mod tests {
 
         let results = query.search_messages("test", 10).unwrap();
         assert!(!results.is_empty());
-        assert!(results.iter().any(|r| r.snippet.to_lowercase().contains("test")));
+        assert!(results
+            .iter()
+            .any(|r| r.snippet.to_lowercase().contains("test")));
     }
 
     #[test]

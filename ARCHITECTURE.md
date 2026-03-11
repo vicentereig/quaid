@@ -6,6 +6,8 @@ This document describes the system architecture, data flow, and concurrency mode
 
 Quaid is a CLI tool for exporting and indexing AI conversations from multiple providers. It uses a hybrid storage approach with a parallel processing pipeline.
 
+The current runtime stores metadata in SQLite, writes conversations and embeddings to Parquet, keeps credentials in the system keychain, downloads attachments from provider-specific pull commands, and uses a deterministic mock embedding backend for semantic and hybrid search. The ONNX backend described below is planned, but not active today.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                              quaid CLI                                   │
@@ -20,31 +22,31 @@ Quaid is a CLI tool for exporting and indexing AI conversations from multiple pr
 │    Providers    │    Pipeline     │    Storage      │    Embeddings     │
 │  ─────────────  │  ────────────   │  ────────────   │  ──────────────   │
 │  • ChatGPT      │  • Fetch Stage  │  • SQLite       │  • Chunker        │
-│  • Claude       │  • Media Stage  │  • Parquet      │  • ONNX Model     │
+│  • Claude       │  • Media Stage* │  • Parquet      │  • Mock Embedder  │
 │  • Fathom       │  • Embed Stage  │  • DuckDB       │  • Mean Pooling   │
 │  • Granola      │                 │                 │                   │
 └─────────────────┴─────────────────┴─────────────────┴───────────────────┘
 ```
 
+`*` The media stage currently forwards messages without downloading attachments. ChatGPT and Claude attachment downloads happen in the `pull` command after metadata sync.
+
 ## Directory Structure
 
 ```
-~/.quaid/
-├── quaid.db                              # SQLite: accounts, auth, FTS catalog
+<data_dir>/                              # default: dirs::data_dir()/quaid, fallback: ./.quaid
+├── quaid.db                              # SQLite: accounts, sync state, attachments, FTS catalog
 ├── conversations/
 │   └── {provider}/
 │       └── {conversation_id}.parquet    # One file per conversation
 ├── embeddings/
 │   └── {provider}/
 │       └── {conversation_id}.parquet    # Embedding vectors
-├── media/
-│   └── {provider}/
-│       └── {conversation_id}/
-│           └── {filename}               # Downloaded attachments
+├── attachments/
+│   └── {account_id}/
+│       └── {filename}                   # Downloaded attachments from provider pull commands
 └── models/
-    └── multilingual-e5-small/           # ONNX model (~118MB)
-        ├── model.onnx
-        └── tokenizer.json
+    ├── multilingual-e5-small.onnx       # Reserved for planned ONNX backend
+    └── multilingual-e5-small-tokenizer.json
 ```
 
 ## Storage Architecture
@@ -53,9 +55,11 @@ Quaid uses a hybrid storage model optimizing for different access patterns:
 
 ### SQLite (quaid.db)
 
-- **Accounts**: Provider credentials and sync state
-- **Authentication**: OAuth tokens (encrypted in keychain)
+- **Accounts**: Provider account identities and sync state
+- **Attachments**: Attachment metadata and local download paths
 - **FTS Catalog**: Full-text search index across all providers
+
+Provider credentials are stored in the system keychain via `keyring`, not in SQLite.
 
 ### Parquet Files
 
@@ -89,16 +93,16 @@ DuckDB queries Parquet files directly using glob patterns:
 
 ```sql
 -- List all conversations from ChatGPT
-SELECT * FROM read_parquet('~/.quaid/conversations/chatgpt/*.parquet');
+SELECT * FROM read_parquet('<data_dir>/conversations/chatgpt/*.parquet');
 
 -- Search across all providers
-SELECT * FROM read_parquet('~/.quaid/conversations/*/*.parquet')
+SELECT * FROM read_parquet('<data_dir>/conversations/*/*.parquet')
 WHERE content ILIKE '%kubernetes%';
 ```
 
 ## Pipeline Architecture
 
-The sync pipeline uses a three-stage design with crossbeam channels for inter-stage communication.
+The sync pipeline uses a three-stage design with crossbeam channels for inter-stage communication. Today, the media stage is a pass-through worker; attachment downloads are still handled by provider-specific pull flows outside the pipeline worker graph.
 
 ### Stage Diagram
 
@@ -107,7 +111,7 @@ The sync pipeline uses a three-stage design with crossbeam channels for inter-st
 │   Fetch Stage    │────▶│   Media Stage    │────▶│      Embed Stage         │
 │                  │     │                  │     │                          │
 │ • Receive convos │     │ • Download       │     │ • Chunk messages         │
-│ • From providers │     │   attachments    │     │ • Generate embeddings    │
+│ • From providers │     │   attachments*   │     │ • Generate embeddings    │
 │                  │     │ • Store to disk  │     │ • Write to Parquet       │
 └──────────────────┘     └──────────────────┘     └──────────────────────────┘
     1 thread                 N threads                    M threads
@@ -115,6 +119,8 @@ The sync pipeline uses a three-stage design with crossbeam channels for inter-st
          └───────────────────────┴────────────────────────────┘
                         crossbeam bounded channels
 ```
+
+`*` This stage currently forwards messages unchanged and leaves attachment downloads to the provider pull commands.
 
 ### Channel Communication
 
@@ -212,12 +218,12 @@ Configuration:
 - `overlap_chars`: 128 (~32 tokens)
 - Sentence boundary detection for clean splits
 
-### Model: multilingual-e5-small
+### Current Backend: deterministic mock embeddings
 
 - **Dimensions**: 384
-- **Languages**: English, Spanish (100+ supported)
-- **Size**: ~118MB
-- **Format**: ONNX Runtime
+- **Behavior**: deterministic hash-based vectors for development and local testing
+- **Dependencies**: no model download required
+- **Roadmap**: planned `multilingual-e5-small` ONNX backend using the `models/` paths above
 
 ### Embedding Levels
 
@@ -388,14 +394,14 @@ Embed Thread 1:          Embed Thread 2:
 | Stage | Bottleneck | Typical Rate |
 |-------|------------|--------------|
 | Fetch | Network I/O | 10-50 conv/sec |
-| Media | Network I/O | 5-20 attachments/sec |
-| Embed | CPU (ONNX) | 100-500 chunks/sec |
+| Media | Channel forwarding / future I/O | N/A while pass-through |
+| Embed | CPU | 100-500 chunks/sec with the current mock backend |
 
 ### Memory Usage
 
 | Component | Memory |
 |-----------|--------|
-| ONNX model | ~200MB |
+| Embedding backend | Minimal today (mock backend); ONNX model not active |
 | Per conversation | ~1-10MB |
 | Channel buffers | ~50MB (100 * 500KB) |
 
@@ -403,7 +409,7 @@ Embed Thread 1:          Embed Thread 2:
 
 ### Vector Search (Implemented)
 
-Semantic search uses L2 distance on embeddings stored in Parquet files:
+Semantic search uses L2 distance on embeddings stored in Parquet files. Lower distance is better.
 
 ```sql
 -- Query embeddings with L2 distance
@@ -414,7 +420,7 @@ SELECT
         list_zip(embedding, $query_embedding),
         x -> power(x[1] - x[2], 2)
     )) as distance
-FROM read_parquet('~/.quaid/embeddings/*/*.parquet')
+FROM read_parquet('<data_dir>/embeddings/*/*.parquet')
 ORDER BY distance
 LIMIT 10;
 ```
@@ -423,7 +429,7 @@ Usage: `quaid search "how to deploy apps" --semantic`
 
 ### Hybrid Search (Implemented)
 
-Combines FTS and semantic search using Reciprocal Rank Fusion (RRF):
+Combines FTS and semantic search using Reciprocal Rank Fusion (RRF). Higher RRF is better.
 
 ```
 Query: "kubernetes deployment"
@@ -443,7 +449,7 @@ Query: "kubernetes deployment"
                            │
                            ▼
                     [doc3, doc1, doc2]
-                    (re-ranked by RRF score)
+                    (re-ranked by higher RRF)
 ```
 
 Usage: `quaid search "kubernetes" --hybrid`
@@ -487,6 +493,7 @@ Manual compaction: `quaid compact` (rarely needed, auto-runs after pull)
 
 ## Future Enhancements
 
+- [ ] Wire in the real ONNX embedding backend
 - [ ] Gemini provider support
 - [ ] HNSW index for faster k-NN search at scale
 - [ ] Conversation-level embeddings (mean pooled)

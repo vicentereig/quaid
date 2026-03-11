@@ -42,7 +42,8 @@ pub trait SearchStorage: Send + Sync {
 /// Trait for semantic/vector search
 pub trait SemanticSearchStorage: Send + Sync {
     /// Search by embedding similarity
-    fn search_semantic(&self, embedding: &[f32], limit: usize) -> Result<Vec<SemanticSearchResult>>;
+    fn search_semantic(&self, embedding: &[f32], limit: usize)
+        -> Result<Vec<SemanticSearchResult>>;
 
     /// Hybrid search combining FTS and vector similarity
     fn search_hybrid(
@@ -72,7 +73,7 @@ pub struct SearchResult {
     pub snippet: String,
 }
 
-/// Semantic search result with similarity score
+/// Semantic or hybrid search result with a backend-specific ranking metric
 #[derive(Debug, Clone)]
 pub struct SemanticSearchResult {
     pub conversation_id: String,

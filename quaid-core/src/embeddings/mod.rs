@@ -1,6 +1,7 @@
 //! Embeddings module for semantic search
 //!
-//! Provides text chunking and ONNX-based embedding generation.
+//! Provides text chunking plus the current deterministic mock embedding
+//! backend. ONNX support is planned but not wired into the runtime yet.
 
 pub mod chunker;
 pub mod model;

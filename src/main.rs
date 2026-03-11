@@ -76,7 +76,7 @@ enum Commands {
 
     /// Export conversations
     Export {
-        /// Output path
+        /// Output file, or directory for multi-conversation markdown exports
         path: PathBuf,
 
         /// Export format (jsonl, markdown, json)

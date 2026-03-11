@@ -220,7 +220,12 @@ mod tests {
             let chunks = vec![create_test_chunk(&format!("msg-{}", i), 0, "Hello world")];
             let embeddings = vec![create_test_embedding()];
             store
-                .write_embeddings(&format!("conv-{}", i), "test_provider", &chunks, &embeddings)
+                .write_embeddings(
+                    &format!("conv-{}", i),
+                    "test_provider",
+                    &chunks,
+                    &embeddings,
+                )
                 .unwrap();
         }
 
@@ -239,7 +244,9 @@ mod tests {
         assert_eq!(result.total_rows, 5);
 
         // Verify consolidated file exists
-        assert!(config.consolidated_embeddings_path("test_provider").exists());
+        assert!(config
+            .consolidated_embeddings_path("test_provider")
+            .exists());
 
         // Verify source directory is removed
         assert!(!source_dir.exists());

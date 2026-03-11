@@ -32,12 +32,7 @@ pub fn run(provider: Option<&str>, store: &Store) -> anyhow::Result<()> {
         for conv in conversations.iter().take(20) {
             let date = conv.updated_at.format("%Y-%m-%d %H:%M");
             let model = conv.model.as_deref().unwrap_or("unknown");
-            println!(
-                "  {} | {:40} | {}",
-                date,
-                truncate(&conv.title, 40),
-                model
-            );
+            println!("  {} | {:40} | {}", date, truncate(&conv.title, 40), model);
         }
 
         if conversations.len() > 20 {

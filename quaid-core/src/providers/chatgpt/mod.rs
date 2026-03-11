@@ -2,12 +2,12 @@ mod types;
 
 use crate::credentials::{CredentialStore, KeyringStore};
 use crate::providers::{
-    Account, Attachment, Conversation, Message, MessageContent, Provider, ProviderId,
-    ProviderError, Result, Role,
+    Account, Attachment, Conversation, Message, MessageContent, Provider, ProviderError,
+    ProviderId, Result, Role,
 };
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use chromiumoxide::browser::{Browser, BrowserConfig};
+use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use reqwest::{header, Client};
 use std::path::Path;
@@ -78,10 +78,7 @@ impl ChatGptProvider {
             header::ACCEPT,
             "application/json, text/plain, */*".parse().unwrap(),
         );
-        headers.insert(
-            header::ACCEPT_LANGUAGE,
-            "en-US,en;q=0.9".parse().unwrap(),
-        );
+        headers.insert(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9".parse().unwrap());
         headers.insert(header::ORIGIN, BASE_URL.parse().unwrap());
         headers.insert(header::REFERER, BASE_URL.parse().unwrap());
         headers.insert("Sec-Fetch-Dest", "empty".parse().unwrap());
@@ -158,11 +155,18 @@ impl ChatGptProvider {
             return Err(ProviderError::Api(format!("{}: {}", status, text)));
         }
 
-        let text = response.text().await.map_err(|e| ProviderError::Parse(e.to_string()))?;
+        let text = response
+            .text()
+            .await
+            .map_err(|e| ProviderError::Parse(e.to_string()))?;
 
         serde_json::from_str(&text).map_err(|e| {
             // Truncate response for error message
-            let preview = if text.len() > 200 { &text[..200] } else { &text };
+            let preview = if text.len() > 200 {
+                &text[..200]
+            } else {
+                &text
+            };
             ProviderError::Parse(format!("{}: {}", e, preview))
         })
     }
@@ -384,18 +388,34 @@ impl Provider for ChatGptProvider {
                                 continue;
                             }
 
-                            if let Some(access_token) = value.get("accessToken").and_then(|v| v.as_str()) {
+                            if let Some(access_token) =
+                                value.get("accessToken").and_then(|v| v.as_str())
+                            {
                                 if !access_token.is_empty() {
                                     println!("Authentication successful!");
 
                                     // Extract user info from the same response
                                     let user = value.get("user");
                                     let account = Account {
-                                        id: user.and_then(|u| u.get("id")).and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
+                                        id: user
+                                            .and_then(|u| u.get("id"))
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("unknown")
+                                            .to_string(),
                                         provider: ProviderId::chatgpt(),
-                                        email: user.and_then(|u| u.get("email")).and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
-                                        name: user.and_then(|u| u.get("name")).and_then(|v| v.as_str()).map(|s| s.to_string()),
-                                        avatar_url: user.and_then(|u| u.get("picture")).and_then(|v| v.as_str()).map(|s| s.to_string()),
+                                        email: user
+                                            .and_then(|u| u.get("email"))
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("unknown")
+                                            .to_string(),
+                                        name: user
+                                            .and_then(|u| u.get("name"))
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string()),
+                                        avatar_url: user
+                                            .and_then(|u| u.get("picture"))
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string()),
                                     };
 
                                     break (access_token.to_string(), account);
@@ -411,18 +431,14 @@ impl Provider for ChatGptProvider {
         };
 
         // Extract cookies from the browser using CDP (gets HttpOnly cookies too)
-        let cookies = page
-            .get_cookies()
-            .await
-            .ok()
-            .map(|cookies| {
-                cookies
-                    .into_iter()
-                    .filter(|c| c.domain.contains("chatgpt.com") || c.domain.contains("openai.com"))
-                    .map(|c| format!("{}={}", c.name, c.value))
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            });
+        let cookies = page.get_cookies().await.ok().map(|cookies| {
+            cookies
+                .into_iter()
+                .filter(|c| c.domain.contains("chatgpt.com") || c.domain.contains("openai.com"))
+                .map(|c| format!("{}={}", c.name, c.value))
+                .collect::<Vec<_>>()
+                .join("; ")
+        });
 
         // Store the token in memory and credential store
         *self.token.write().await = Some(token.clone());
@@ -458,7 +474,9 @@ impl Provider for ChatGptProvider {
             .await?;
 
         if !response.status().is_success() {
-            return Err(ProviderError::AuthFailed("Failed to fetch session".to_string()));
+            return Err(ProviderError::AuthFailed(
+                "Failed to fetch session".to_string(),
+            ));
         }
 
         let session: ApiSession = response
@@ -478,10 +496,7 @@ impl Provider for ChatGptProvider {
     async fn conversations(&self) -> Result<Vec<Conversation>> {
         let items = self.fetch_all_conversations().await?;
 
-        Ok(items
-            .iter()
-            .map(Self::convert_list_conversation)
-            .collect())
+        Ok(items.iter().map(Self::convert_list_conversation).collect())
     }
 
     async fn conversation(&self, id: &str) -> Result<(Conversation, Vec<Message>)> {
@@ -534,19 +549,16 @@ impl Provider for ChatGptProvider {
         Ok(conversations)
     }
 
-    async fn download_attachment(
-        &self,
-        attachment: &Attachment,
-        path: &Path,
-    ) -> Result<()> {
+    async fn download_attachment(&self, attachment: &Attachment, path: &Path) -> Result<()> {
         // Get signed download URL
         let file_id = attachment
             .download_url
             .strip_prefix("file-service://")
             .unwrap_or(&attachment.download_url);
 
-        let download_info: ApiFileDownload =
-            self.api_get(&format!("/files/{}/download", file_id)).await?;
+        let download_info: ApiFileDownload = self
+            .api_get(&format!("/files/{}/download", file_id))
+            .await?;
 
         match download_info {
             ApiFileDownload::Success { download_url, .. } => {
@@ -811,9 +823,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_provider_with_stored_credentials() {
-        let store = MockStore::with_credentials(vec![
-            (KEYRING_SERVICE, KEYRING_USER_TOKEN, "stored-token"),
-        ]);
+        let store = MockStore::with_credentials(vec![(
+            KEYRING_SERVICE,
+            KEYRING_USER_TOKEN,
+            "stored-token",
+        )]);
         let provider = ChatGptProvider::with_credential_store(Arc::new(store));
         assert!(provider.is_authenticated().await);
         assert_eq!(provider.get_token().await.unwrap(), "stored-token");

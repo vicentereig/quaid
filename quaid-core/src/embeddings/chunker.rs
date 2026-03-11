@@ -130,10 +130,8 @@ impl MessageChunker {
             }
 
             // Ensure new start is at a valid char boundary
-            start = Self::ceil_char_boundary(
-                text,
-                chunk_end.saturating_sub(self.config.overlap_chars),
-            );
+            start =
+                Self::ceil_char_boundary(text, chunk_end.saturating_sub(self.config.overlap_chars));
 
             // Ensure we make progress
             if start <= chunks.len().saturating_sub(1) * self.config.max_chunk_chars {
@@ -148,10 +146,8 @@ impl MessageChunker {
     fn find_break_point(&self, text: &str, _start: usize, max_end: usize) -> usize {
         // Ensure boundaries are valid UTF-8 char boundaries
         let max_end = Self::floor_char_boundary(text, max_end);
-        let search_start = Self::ceil_char_boundary(
-            text,
-            max_end.saturating_sub(self.config.overlap_chars),
-        );
+        let search_start =
+            Self::ceil_char_boundary(text, max_end.saturating_sub(self.config.overlap_chars));
 
         // Safety: search_start and max_end are now guaranteed to be valid char boundaries
         let search_text = &text[search_start..max_end];
@@ -354,7 +350,10 @@ mod tests {
 
             // Some overlap is expected but not guaranteed due to sentence boundary seeking
             // This test is more about ensuring the chunker doesn't crash with overlap config
-            assert!(chunks.len() >= 2, "Should have multiple chunks for overlap test");
+            assert!(
+                chunks.len() >= 2,
+                "Should have multiple chunks for overlap test"
+            );
         }
     }
 

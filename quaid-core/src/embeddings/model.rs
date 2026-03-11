@@ -1,25 +1,27 @@
-//! ONNX embedding model wrapper
+//! Embedding backend wrapper
 //!
-//! Provides embedding generation using ONNX Runtime with multilingual models.
+//! Quaid currently ships with a deterministic mock embedder so semantic and
+//! hybrid search work without model downloads. The ONNX backend described by
+//! the config is planned but not wired up yet.
 
 use super::Result;
 use std::path::{Path, PathBuf};
 
-/// Configuration for the embedding model
+/// Configuration for the planned ONNX embedding backend
 #[derive(Debug, Clone)]
 pub struct EmbeddingModelConfig {
-    /// Path to the ONNX model file
+    /// Path to the planned ONNX model file
     pub model_path: PathBuf,
-    /// Path to the tokenizer JSON file
+    /// Path to the planned tokenizer JSON file
     pub tokenizer_path: PathBuf,
     /// Maximum sequence length
     pub max_length: usize,
-    /// Embedding dimension (384 for e5-small)
+    /// Embedding dimension (384 for e5-small / mock fallback)
     pub embedding_dim: usize,
 }
 
 impl EmbeddingModelConfig {
-    /// Create config for multilingual-e5-small
+    /// Create config for the planned multilingual-e5-small backend
     pub fn multilingual_e5_small(models_dir: impl AsRef<Path>) -> Self {
         let models_dir = models_dir.as_ref();
         Self {
@@ -43,34 +45,32 @@ pub trait Embedder: Send + Sync {
     fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>>;
 }
 
-/// ONNX-based embedding model
+/// Embedding model facade
 ///
-/// Uses multilingual-e5-small for English/Spanish text embedding.
+/// The public API stays stable while the implementation currently falls back
+/// to deterministic mock embeddings.
 pub struct EmbeddingModel {
     #[allow(dead_code)]
     config: EmbeddingModelConfig,
-    // Session and tokenizer will be added when model files are available
+    // Session and tokenizer will be added when the ONNX backend is implemented.
     mock: MockEmbeddingModel,
 }
 
 impl EmbeddingModel {
-    /// Load an embedding model from files
-    ///
-    /// If model files don't exist, falls back to mock embeddings.
+    /// Load the current embedding backend.
     pub fn load(config: EmbeddingModelConfig) -> Result<Self> {
-        // TODO: Implement real ONNX loading when model files are available
-        // For now, use mock embeddings for development
+        // TODO: Implement real ONNX loading when model files are available.
         let mock = MockEmbeddingModel::new(config.embedding_dim);
 
         Ok(Self { config, mock })
     }
 
-    /// Load with auto-download if model doesn't exist
-    pub fn load_or_download(models_dir: impl AsRef<Path>) -> Result<Self> {
+    /// Load the current backend, using the standard model locations for the
+    /// future ONNX implementation.
+    pub fn load_or_fallback(models_dir: impl AsRef<Path>) -> Result<Self> {
         let config = EmbeddingModelConfig::multilingual_e5_small(&models_dir);
 
-        // TODO: Implement model download from HuggingFace
-        // For now, just use mock
+        // TODO: Implement a real backend selection flow when ONNX is wired in.
         Self::load(config)
     }
 
@@ -110,17 +110,17 @@ impl Embedder for EmbeddingModel {
     }
 
     fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        // TODO: Use real ONNX inference when implemented
+        // TODO: Use real ONNX inference when implemented.
         Ok(self.mock.embed(text))
     }
 
     fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
-        // TODO: Use real ONNX batch inference when implemented
+        // TODO: Use real ONNX batch inference when implemented.
         Ok(self.mock.embed_batch(texts))
     }
 }
 
-/// Mock embedding model for testing (returns deterministic embeddings)
+/// Deterministic mock embedder used by the current runtime and tests.
 #[derive(Clone)]
 pub struct MockEmbeddingModel {
     dim: usize,
@@ -133,9 +133,9 @@ impl MockEmbeddingModel {
 
     /// Generate a deterministic embedding based on text hash
     pub fn embed(&self, text: &str) -> Vec<f32> {
-        let hash = text.bytes().fold(0u64, |acc, b| {
-            acc.wrapping_mul(31).wrapping_add(b as u64)
-        });
+        let hash = text
+            .bytes()
+            .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
 
         // Generate deterministic values based on hash
         let mut embedding: Vec<f32> = (0..self.dim)
@@ -203,7 +203,10 @@ mod tests {
         let embedding = model.embed("Test text");
 
         let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!((norm - 1.0).abs() < 0.01, "Embedding should be L2 normalized");
+        assert!(
+            (norm - 1.0).abs() < 0.01,
+            "Embedding should be L2 normalized"
+        );
     }
 
     #[test]

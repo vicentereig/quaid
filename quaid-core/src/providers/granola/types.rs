@@ -242,7 +242,8 @@ mod tests {
     fn test_parse_credentials_file() {
         // The file format has nested JSON strings
         let workos_tokens = r#"{"access_token":"eyJhbGciOiJS...","refresh_token":"refresh_abc123","expires_in":21600,"obtained_at":1705329600000,"token_type":"Bearer"}"#;
-        let user_info = r#"{"id":"user-123","email":"test@example.com","user_metadata":{"name":"Test User"}}"#;
+        let user_info =
+            r#"{"id":"user-123","email":"test@example.com","user_metadata":{"name":"Test User"}}"#;
 
         let json = format!(
             r#"{{"workos_tokens":"{}","user_info":"{}","session_id":"session_123"}}"#,

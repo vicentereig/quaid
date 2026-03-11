@@ -102,7 +102,15 @@ impl ParquetStore {
         let conv_is_archiveds: Vec<bool> = vec![conv.is_archived; num_rows];
 
         // Message data
-        let (msg_ids, msg_parent_ids, msg_roles, msg_content_types, msg_content_jsons, msg_created_ats, msg_models): (
+        let (
+            msg_ids,
+            msg_parent_ids,
+            msg_roles,
+            msg_content_types,
+            msg_content_jsons,
+            msg_created_ats,
+            msg_models,
+        ): (
             Vec<String>,
             Vec<Option<String>>,
             Vec<String>,
@@ -171,14 +179,10 @@ impl ParquetStore {
                 Arc::new(StringArray::from(conv_ids)) as ArrayRef,
                 Arc::new(StringArray::from(conv_provider_ids)) as ArrayRef,
                 Arc::new(StringArray::from(conv_titles)) as ArrayRef,
-                Arc::new(
-                    TimestampMillisecondArray::from(conv_created_ats)
-                        .with_timezone("UTC"),
-                ) as ArrayRef,
-                Arc::new(
-                    TimestampMillisecondArray::from(conv_updated_ats)
-                        .with_timezone("UTC"),
-                ) as ArrayRef,
+                Arc::new(TimestampMillisecondArray::from(conv_created_ats).with_timezone("UTC"))
+                    as ArrayRef,
+                Arc::new(TimestampMillisecondArray::from(conv_updated_ats).with_timezone("UTC"))
+                    as ArrayRef,
                 Arc::new(StringArray::from(conv_models)) as ArrayRef,
                 Arc::new(StringArray::from(conv_project_ids)) as ArrayRef,
                 Arc::new(StringArray::from(conv_project_names)) as ArrayRef,
@@ -188,10 +192,8 @@ impl ParquetStore {
                 Arc::new(StringArray::from(msg_roles)) as ArrayRef,
                 Arc::new(StringArray::from(msg_content_types)) as ArrayRef,
                 Arc::new(StringArray::from(msg_content_jsons)) as ArrayRef,
-                Arc::new(
-                    TimestampMillisecondArray::from(msg_created_ats)
-                        .with_timezone("UTC"),
-                ) as ArrayRef,
+                Arc::new(TimestampMillisecondArray::from(msg_created_ats).with_timezone("UTC"))
+                    as ArrayRef,
                 Arc::new(StringArray::from(msg_models)) as ArrayRef,
             ],
         )?;
@@ -253,17 +255,13 @@ impl ParquetStore {
                 let conv_created_at = batch
                     .column_by_name("conv_created_at")
                     .and_then(|c| c.as_any().downcast_ref::<TimestampMillisecondArray>())
-                    .and_then(|a| {
-                        DateTime::from_timestamp_millis(a.value(0))
-                    })
+                    .and_then(|a| DateTime::from_timestamp_millis(a.value(0)))
                     .unwrap_or_else(Utc::now);
 
                 let conv_updated_at = batch
                     .column_by_name("conv_updated_at")
                     .and_then(|c| c.as_any().downcast_ref::<TimestampMillisecondArray>())
-                    .and_then(|a| {
-                        DateTime::from_timestamp_millis(a.value(0))
-                    })
+                    .and_then(|a| DateTime::from_timestamp_millis(a.value(0)))
                     .unwrap_or_else(Utc::now);
 
                 let conv_model = batch
@@ -356,12 +354,10 @@ impl ParquetStore {
                         _ => Role::User,
                     };
 
-                    let content: MessageContent =
-                        serde_json::from_str(content_jsons.value(i)).unwrap_or(
-                            MessageContent::Text {
-                                text: content_jsons.value(i).to_string(),
-                            },
-                        );
+                    let content: MessageContent = serde_json::from_str(content_jsons.value(i))
+                        .unwrap_or(MessageContent::Text {
+                            text: content_jsons.value(i).to_string(),
+                        });
 
                     let parent_id = msg_parent_ids.and_then(|a| {
                         if a.is_null(i) {
@@ -476,10 +472,7 @@ mod tests {
             .unwrap();
 
         assert!(path.exists());
-        assert_eq!(
-            path,
-            config.conversation_path("chatgpt", "conv-123")
-        );
+        assert_eq!(path, config.conversation_path("chatgpt", "conv-123"));
     }
 
     #[test]

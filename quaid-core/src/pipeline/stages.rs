@@ -24,8 +24,9 @@ pub fn media_worker(
                 conversation,
                 messages,
             } => {
-                // TODO: Download attachments when provider support is added
-                // For now, just forward the message
+                // TODO: Download attachments once pipeline-based attachment
+                // handling is implemented. Provider pull commands handle
+                // downloads today.
 
                 let result = PipelineMessage::MediaDownloaded {
                     account_id,
@@ -107,9 +108,12 @@ pub fn embed_worker(
 
                 // Write embeddings to parquet
                 if !chunks.is_empty() {
-                    if let Err(e) =
-                        embeddings_store.write_embeddings(&conv_id, &provider_id, &chunks, &embeddings)
-                    {
+                    if let Err(e) = embeddings_store.write_embeddings(
+                        &conv_id,
+                        &provider_id,
+                        &chunks,
+                        &embeddings,
+                    ) {
                         let _ = tx.send(PipelineMessage::Error {
                             conversation_id: conv_id.clone(),
                             stage: "embeddings".to_string(),

@@ -2,7 +2,7 @@
 //!
 //! Three-stage pipeline with crossbeam channels:
 //! 1. Fetch Stage - retrieve conversations from providers
-//! 2. Media Stage - download attachments
+//! 2. Media Stage - currently a pass-through stage reserved for pipeline-based attachment downloads
 //! 3. Embed Stage - chunk, embed, and persist
 
 pub mod config;
@@ -84,9 +84,9 @@ impl Pipeline {
         let storage_config = ParquetStorageConfig::new(&self.config.data_dir);
         let parquet_store = Arc::new(ParquetStore::new(storage_config.clone()));
         let embeddings_store = Arc::new(EmbeddingsStore::new(storage_config.clone()));
-        let embedder: Arc<dyn Embedder> = Arc::new(
-            EmbeddingModel::load_or_download(self.config.data_dir.join("models"))?,
-        );
+        let embedder: Arc<dyn Embedder> = Arc::new(EmbeddingModel::load_or_fallback(
+            self.config.data_dir.join("models"),
+        )?);
         let chunker = Arc::new(MessageChunker::new(ChunkerConfig::default()));
 
         // Spawn stage workers
@@ -116,9 +116,7 @@ impl Pipeline {
             let tx = media_tx.clone();
             let storage = storage_config.clone();
 
-            handles.push(thread::spawn(move || {
-                stages::media_worker(rx, tx, storage)
-            }));
+            handles.push(thread::spawn(move || stages::media_worker(rx, tx, storage)));
         }
         // Drop our copies - workers have their own clones
         drop(fetch_rx);

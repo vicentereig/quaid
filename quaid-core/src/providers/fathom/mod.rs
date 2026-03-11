@@ -9,8 +9,8 @@ pub mod types;
 
 use crate::credentials::{CredentialStore, KeyringStore};
 use crate::providers::{
-    Account, Attachment, Conversation, Message, MessageContent, Provider, ProviderId,
-    ProviderError, Result, Role,
+    Account, Attachment, Conversation, Message, MessageContent, Provider, ProviderError,
+    ProviderId, Result, Role,
 };
 use async_trait::async_trait;
 use reqwest::{header, Client};
@@ -38,9 +38,7 @@ impl FathomProvider {
 
     /// Create with a custom credential store (for testing)
     pub fn with_credential_store(credential_store: Arc<dyn CredentialStore>) -> Self {
-        let api_key = credential_store
-            .get(KEYRING_SERVICE, KEYRING_API_KEY)
-            .ok();
+        let api_key = credential_store.get(KEYRING_SERVICE, KEYRING_API_KEY).ok();
 
         Self {
             client: build_client(),
@@ -97,13 +95,16 @@ impl FathomProvider {
 
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
-            return Err(ProviderError::Api(format!("{}: {}", status, truncate(&text, 500))));
+            return Err(ProviderError::Api(format!(
+                "{}: {}",
+                status,
+                truncate(&text, 500)
+            )));
         }
 
         let text = response.text().await?;
-        serde_json::from_str(&text).map_err(|e| {
-            ProviderError::Parse(format!("{}: {}", e, truncate(&text, 200)))
-        })
+        serde_json::from_str(&text)
+            .map_err(|e| ProviderError::Parse(format!("{}: {}", e, truncate(&text, 200))))
     }
 
     /// Fetch all meetings with transcripts (public for efficient bulk sync)
@@ -263,7 +264,9 @@ impl Provider for FathomProvider {
 
         // Read from stdin
         use std::io::{self, Write};
-        io::stdout().flush().map_err(|e| ProviderError::AuthFailed(e.to_string()))?;
+        io::stdout()
+            .flush()
+            .map_err(|e| ProviderError::AuthFailed(e.to_string()))?;
 
         let mut api_key = String::new();
         io::stdin()
@@ -280,10 +283,16 @@ impl Provider for FathomProvider {
         *self.api_key.write().await = Some(api_key.clone());
 
         // Try to fetch meetings to validate the key
-        match self.api_get::<ApiMeetingsResponse>("/meetings?limit=1").await {
+        match self
+            .api_get::<ApiMeetingsResponse>("/meetings?limit=1")
+            .await
+        {
             Ok(_) => {
                 // Save to credential store
-                if let Err(e) = self.credential_store.set(KEYRING_SERVICE, KEYRING_API_KEY, &api_key) {
+                if let Err(e) =
+                    self.credential_store
+                        .set(KEYRING_SERVICE, KEYRING_API_KEY, &api_key)
+                {
                     eprintln!("Warning: failed to save API key: {}", e);
                 }
                 println!("API key validated and saved!");
@@ -357,11 +366,7 @@ impl Provider for FathomProvider {
             .collect())
     }
 
-    async fn download_attachment(
-        &self,
-        _attachment: &Attachment,
-        _path: &Path,
-    ) -> Result<()> {
+    async fn download_attachment(&self, _attachment: &Attachment, _path: &Path) -> Result<()> {
         // Fathom doesn't have traditional attachments
         // Video recordings might be downloadable via share_url
         Err(ProviderError::Api(
@@ -373,14 +378,8 @@ impl Provider for FathomProvider {
 /// Build HTTP client with appropriate headers
 fn build_client() -> Client {
     let mut headers = header::HeaderMap::new();
-    headers.insert(
-        header::ACCEPT,
-        "application/json".parse().unwrap(),
-    );
-    headers.insert(
-        header::CONTENT_TYPE,
-        "application/json".parse().unwrap(),
-    );
+    headers.insert(header::ACCEPT, "application/json".parse().unwrap());
+    headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
 
     Client::builder()
         .default_headers(headers)
@@ -426,9 +425,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_provider_with_stored_credentials() {
-        let store = MockStore::with_credentials(vec![
-            (KEYRING_SERVICE, KEYRING_API_KEY, "stored-api-key"),
-        ]);
+        let store =
+            MockStore::with_credentials(vec![(KEYRING_SERVICE, KEYRING_API_KEY, "stored-api-key")]);
         let provider = FathomProvider::with_credential_store(Arc::new(store));
         assert!(provider.is_authenticated().await);
     }
@@ -517,15 +515,13 @@ mod tests {
                 template_name: Some("Default".to_string()),
                 markdown_formatted: Some("## Summary\nGreat meeting!".to_string()),
             }),
-            action_items: vec![
-                ApiActionItem {
-                    description: "Follow up on proposal".to_string(),
-                    assignee: Some(ApiAssignee {
-                        name: Some("Alice".to_string()),
-                        email: None,
-                    }),
-                },
-            ],
+            action_items: vec![ApiActionItem {
+                description: "Follow up on proposal".to_string(),
+                assignee: Some(ApiAssignee {
+                    name: Some("Alice".to_string()),
+                    email: None,
+                }),
+            }],
             crm_matches: None,
         };
 

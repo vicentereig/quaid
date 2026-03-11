@@ -55,9 +55,7 @@ pub async fn run(provider: &str, store: &Store) -> anyhow::Result<()> {
             store.save_account(&account)?;
 
             println!("\nAuthenticated as: {} ({})", account.email, account.id);
-            println!(
-                "Account saved. You can now use `quaid fathom pull` to sync your meetings."
-            );
+            println!("Account saved. You can now use `quaid fathom pull` to sync your meetings.");
 
             Ok(())
         }
